@@ -2,16 +2,18 @@ from django.db import models, transaction, IntegrityError
 from django.conf import settings
 from django.utils import timezone
 from patients.models import Patient
+from tenants.models import TenantModel
 
 
-class Invoice(models.Model):
+class Invoice(TenantModel):
     class Status(models.TextChoices):
         PENDING = 'PENDING', 'Pending'
         PARTIALLY_PAID = 'PARTIALLY_PAID', 'Partially Paid'
         PAID = 'PAID', 'Paid'
         CANCELLED = 'CANCELLED', 'Cancelled'
 
-    invoice_number = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
+    # MULTI-TENANT: per-hospital unique (pehle globally unique tha)
+    invoice_number = models.CharField(max_length=20, editable=False, db_index=True)
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='invoices')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
@@ -19,6 +21,11 @@ class Invoice(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['hospital', 'invoice_number'], name='uniq_invoice_number_per_hospital'
+            ),
+        ]
 
     def __str__(self):
         return f"{self.invoice_number} - {self.patient.full_name}"
@@ -50,15 +57,16 @@ class Invoice(models.Model):
         self.save(update_fields=['status'])
 
     def save(self, *args, **kwargs):
+        self.ensure_hospital()
         if not self.invoice_number:
             from core.models import IDCounter
             year = timezone.now().year
-            next_num = IDCounter.get_next(f'invoice_{year}')
+            next_num = IDCounter.get_next(f'invoice_{year}', hospital=self.hospital)
             self.invoice_number = f"INV-{year}-{next_num:04d}"
         super().save(*args, **kwargs)
 
 
-class InvoiceItem(models.Model):
+class InvoiceItem(TenantModel):
     class ItemType(models.TextChoices):
         CONSULTATION = 'CONSULTATION', 'Consultation Fee'
         ADMISSION = 'ADMISSION', 'Admission / Bed Charges'
@@ -74,7 +82,7 @@ class InvoiceItem(models.Model):
         return f"{self.description} - ₹{self.amount}"
 
 
-class Payment(models.Model):
+class Payment(TenantModel):
     class Mode(models.TextChoices):
         CASH = 'CASH', 'Cash'
         UPI = 'UPI', 'UPI'

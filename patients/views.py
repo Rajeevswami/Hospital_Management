@@ -4,6 +4,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db.models import Q
 from django.core.paginator import Paginator
 from core.decorators import role_required
+from subscriptions.gating import check_limit
 from .models import Patient
 from .forms import PatientForm
 
@@ -25,6 +26,15 @@ def patient_list(request):
 @login_required
 @role_required('ADMIN', 'RECEPTIONIST')
 def patient_create(request):
+    # Phase 2: plan ka patient_limit check (unlimited plans pe kuch nahi hota)
+    allowed, reason, limit = check_limit(request, 'patient_limit', Patient.objects.count())
+    if not allowed:
+        if reason == 'limit_reached':
+            messages.error(request, f'Aapke plan ki limit {limit} patients ki hai. Plan upgrade karo.')
+        else:
+            messages.error(request, 'Patient register karne ke liye active subscription zaroori hai.')
+        return redirect('subscriptions:billing')
+
     form = PatientForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         patient = form.save(commit=False)

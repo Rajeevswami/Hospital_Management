@@ -15,7 +15,12 @@ class AuditContextMiddleware:
         ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR')
         user = request.user if request.user.is_authenticated else None
         audit_context.set_current_request(user, ip)
-        return self.get_response(request)
+        try:
+            return self.get_response(request)
+        finally:
+            # Thread reuse (gunicorn worker) pe purana user/IP leak na ho -
+            # warna agla request doosre user ke naam se audit log likh sakta hai.
+            audit_context.set_current_request(None, None)
 
 
 class IdleSessionTimeoutMiddleware:

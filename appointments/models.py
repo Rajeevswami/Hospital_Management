@@ -3,9 +3,10 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from patients.models import Patient
 from doctors.models import Doctor
+from tenants.models import TenantModel
 
 
-class Appointment(models.Model):
+class Appointment(TenantModel):
     class Status(models.TextChoices):
         SCHEDULED = 'SCHEDULED', 'Scheduled'
         COMPLETED = 'COMPLETED', 'Completed'
@@ -36,7 +37,10 @@ class Appointment(models.Model):
         return f"{self.patient.full_name} with {self.doctor} on {self.appointment_date} {self.appointment_time}"
 
     def clean(self):
-        conflict = Appointment.objects.filter(
+        # NOTE: self.__class__.objects tenant-scoped hai, isliye yeh conflict check
+        # sirf isi hospital ke appointments dekhta hai (doosre hospital ka same
+        # doctor-slot irrelevant hai).
+        conflict = self.__class__.objects.filter(
             doctor=self.doctor,
             appointment_date=self.appointment_date,
             appointment_time=self.appointment_time,
@@ -46,6 +50,8 @@ class Appointment(models.Model):
             raise ValidationError("This doctor already has a scheduled appointment at this exact time.")
 
     def save(self, *args, **kwargs):
+        # hospital pehle (warna full_clean "cannot be null" dega), phir fee, phir validate
+        self.ensure_hospital()
         if self.fee is None:
             self.fee = self.doctor.consultation_fee
         self.full_clean()

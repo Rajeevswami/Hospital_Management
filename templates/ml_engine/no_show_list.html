@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}AI No-Show Risk{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="bi bi-robot"></i> No-Show Risk (AI)</h4>
+    {% if user.is_admin or user.is_receptionist %}
+    <form method="post" action="{% url 'ml_engine:rescore_all' %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i> Re-score all upcoming</button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="mb-3">Engine Status</h6>
+        <div class="row">
+            <div class="col-md-3">
+                <small class="text-muted d-block">Current engine</small>
+                {% if engine == 'sklearn' %}
+                    <span class="badge bg-success">scikit-learn GradientBoosting</span>
+                    {% if model_version %}<br><code class="small">{{ model_version }}</code>{% endif %}
+                {% else %}
+                    <span class="badge bg-warning text-dark">Rule-based (cold start)</span>
+                {% endif %}
+            </div>
+            <div class="col-md-3">
+                <small class="text-muted d-block">Labelled appointments</small>
+                <strong>{{ readiness.labelled_rows }}</strong> / {{ readiness.required_rows }}
+                <div class="small text-muted">no-show rate {{ readiness.positive_rate|floatformat:1 }}%</div>
+            </div>
+            <div class="col-md-6">
+                <small class="text-muted d-block">Verdict</small>
+                <span>{{ readiness.verdict }}</span>
+            </div>
+        </div>
+        {% if active_artifact %}
+        <div class="row mt-3">
+            <div class="col-12">
+                <small class="text-muted d-block">Trained model metrics</small>
+                <span class="small">
+                    ROC-AUC <strong>{{ active_artifact.metrics.roc_auc|default:"n/a" }}</strong>
+                    &middot; precision <strong>{{ active_artifact.metrics.precision|default:"n/a" }}</strong>
+                    &middot; recall <strong>{{ active_artifact.metrics.recall|default:"n/a" }}</strong>
+                    &middot; baseline <strong>{{ active_artifact.metrics.baseline_no_show_rate|default:"n/a" }}</strong>
+                    &middot; trained on {{ active_artifact.training_rows }} rows ({{ active_artifact.trained_at|date:"d M Y" }})
+                </span>
+            </div>
+        </div>
+        {% endif %}
+        {% if engine == 'rules' %}
+        <div class="alert alert-info mt-3 mb-0 small">
+            Abhi <strong>lead time + day-of-week + patient history</strong> wale rules se score ban raha hai.
+            {{ readiness.required_rows }} labelled appointments ho jaane par
+            <code>python manage.py train_no_show{% if request.hospital %} --hospital {{ request.hospital.slug }}{% endif %}</code> chalao -
+            naya model apne aap use hone lagega.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Upcoming Appointments</span>
+        <span class="badge bg-danger">{{ high_count }} high risk</span>
+    </div>
+    <table class="table table-hover mb-0">
+        <thead class="table-light">
+            <tr><th>Score</th><th>Risk</th><th>Patient</th><th>Doctor</th><th>Date / Time</th><th>Engine</th><th>Top reasons</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td><strong>{{ row.risk.score_pct }}%</strong></td>
+                <td>
+                    {% if row.risk.level == 'HIGH' %}<span class="badge bg-danger">HIGH</span>
+                    {% elif row.risk.level == 'MEDIUM' %}<span class="badge bg-warning text-dark">MEDIUM</span>
+                    {% else %}<span class="badge bg-success">LOW</span>{% endif %}
+                </td>
+                <td><a href="{% url 'patients:detail' row.appointment.patient.pk %}">{{ row.appointment.patient.full_name }}</a></td>
+                <td>{{ row.appointment.doctor|default:"-" }}</td>
+                <td>
+                    {{ row.appointment.appointment_date|date:"d M Y" }}
+                    {% if row.appointment.appointment_time %}{{ row.appointment.appointment_time|time:"H:i" }}{% endif %}
+                </td>
+                <td><small class="text-muted">{{ row.risk.engine }}</small></td>
+                <td class="small text-muted">
+                    <ul class="mb-0 ps-3">
+                    {% for reason in row.risk.reasons|slice:":3" %}
+                        <li>{{ reason.note|default:reason.factor }}</li>
+                    {% empty %}<li>-</li>{% endfor %}
+                    </ul>
+                </td>
+                <td>
+                    {% if user.is_admin or user.is_receptionist or user.is_doctor %}
+                    <form method="post" action="{% url 'ml_engine:rescore' row.appointment.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Re-score</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="8" class="text-center text-muted">Koi upcoming appointment nahi mila jiska score bana ho. Naye appointments pe score apne aap banta hai.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

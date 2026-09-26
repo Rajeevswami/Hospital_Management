@@ -3,9 +3,10 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from patients.models import Patient
 from doctors.models import Doctor
+from tenants.models import TenantModel
 
 
-class Medicine(models.Model):
+class Medicine(TenantModel):
     name = models.CharField(max_length=150)
     manufacturer = models.CharField(max_length=150, blank=True)
     batch_number = models.CharField(max_length=50, blank=True)
@@ -30,7 +31,7 @@ class Medicine(models.Model):
         return bool(self.expiry_date and self.expiry_date < timezone.now().date())
 
 
-class Prescription(models.Model):
+class Prescription(TenantModel):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='prescriptions')
     doctor = models.ForeignKey(Doctor, on_delete=models.SET_NULL, null=True, blank=True, related_name='prescriptions')
     notes = models.TextField(blank=True)
@@ -49,7 +50,7 @@ class Prescription(models.Model):
         return sum(item.subtotal for item in self.items.all())
 
 
-class PrescriptionItem(models.Model):
+class PrescriptionItem(TenantModel):
     prescription = models.ForeignKey(Prescription, on_delete=models.CASCADE, related_name='items')
     medicine = models.ForeignKey(Medicine, on_delete=models.PROTECT, related_name='prescription_items')
     quantity = models.PositiveIntegerField()

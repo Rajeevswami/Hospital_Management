@@ -2,9 +2,10 @@ from django.db import models
 from django.conf import settings
 from patients.models import Patient
 from doctors.models import Doctor
+from tenants.models import TenantModel
 
 
-class Ward(models.Model):
+class Ward(TenantModel):
     class WardType(models.TextChoices):
         GENERAL = 'GENERAL', 'General'
         ICU = 'ICU', 'ICU'
@@ -19,7 +20,7 @@ class Ward(models.Model):
         return f"{self.name} ({self.get_ward_type_display()})"
 
 
-class Bed(models.Model):
+class Bed(TenantModel):
     ward = models.ForeignKey(Ward, on_delete=models.CASCADE, related_name='beds')
     bed_number = models.CharField(max_length=10)
     is_occupied = models.BooleanField(default=False)
@@ -33,7 +34,7 @@ class Bed(models.Model):
         return f"{self.ward.name} - Bed {self.bed_number} ({status})"
 
 
-class Admission(models.Model):
+class Admission(TenantModel):
     """
     The core 'patient admit hua, konsi bimari thi' record.
     One active admission per patient at a time (enforced in the view, not DB,

@@ -2,8 +2,10 @@ from django.db import models, transaction, IntegrityError
 from django.conf import settings
 from django.utils import timezone
 
+from tenants.models import TenantModel
 
-class Patient(models.Model):
+
+class Patient(TenantModel):
     class Gender(models.TextChoices):
         MALE = 'M', 'Male'
         FEMALE = 'F', 'Female'
@@ -20,7 +22,9 @@ class Patient(models.Model):
         O_NEG = 'O-', 'O-'
         UNKNOWN = 'UNK', 'Unknown'
 
-    patient_id = models.CharField(max_length=20, unique=True, editable=False, db_index=True)
+    # MULTI-TENANT: ab globally unique nahi - per-hospital unique. Do hospitals
+    # dono ka PAT-2026-0001 ho sakta hai; purane IDs bilkul waise hi rehte hain.
+    patient_id = models.CharField(max_length=20, editable=False, db_index=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
     date_of_birth = models.DateField()
@@ -40,6 +44,9 @@ class Patient(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['hospital', 'patient_id'], name='uniq_patient_id_per_hospital'),
+        ]
 
     def __str__(self):
         return f"{self.patient_id} - {self.first_name} {self.last_name}"
@@ -58,9 +65,11 @@ class Patient(models.Model):
         # Generate human-readable ID only once, on creation: PAT-2026-0001
         # Uses a dedicated counter row (core.IDCounter) so it's safe even when
         # many receptionists register patients at the exact same instant.
+        # hospital pehle resolve karo (INSERT se pehle ID generate karni hai)
+        self.ensure_hospital()
         if not self.patient_id:
             from core.models import IDCounter
             year = timezone.now().year
-            next_num = IDCounter.get_next(f'patient_{year}')
+            next_num = IDCounter.get_next(f'patient_{year}', hospital=self.hospital)
             self.patient_id = f"PAT-{year}-{next_num:04d}"
         super().save(*args, **kwargs)

@@ -1,6 +1,8 @@
 from django.db import models, transaction
 from django.conf import settings
 
+from tenants.context import get_current_hospital
+
 
 class IDCounter(models.Model):
     """
@@ -12,15 +14,32 @@ class IDCounter(models.Model):
     work when zero rows exist yet (the very first ID of the year) - there's
     nothing to lock, so concurrent requests can't be serialized. A counter row
     that always exists, locked via select_for_update, solves this completely.
+
+    MULTI-TENANT (Phase 1): counter ab per-hospital hai. Naya hospital apni
+    numbering 1 se shuru karta hai, purane hospital ki sequence aage badhti
+    rehti hai - isliye data migration purane counter rows ko 'Default Hospital'
+    pe assign karti hai. ID ka FORMAT wahi rehta hai (PAT-2026-0001).
     """
-    name = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=50)
+    hospital = models.ForeignKey(
+        'tenants.Hospital', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='id_counters',
+        help_text='Null = legacy/platform counter (multi-tenant se pehle ka)',
+    )
     value = models.PositiveIntegerField(default=0)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['name', 'hospital'], name='uniq_counter_per_hospital'),
+        ]
+
     @classmethod
-    def get_next(cls, name):
+    def get_next(cls, name, hospital=None):
+        if hospital is None:
+            hospital = get_current_hospital()
         with transaction.atomic():
-            cls.objects.get_or_create(name=name)
-            counter = cls.objects.select_for_update().get(name=name)
+            cls.objects.get_or_create(name=name, hospital=hospital)
+            counter = cls.objects.select_for_update().get(name=name, hospital=hospital)
             counter.value += 1
             counter.save(update_fields=['value'])
             return counter.value
@@ -39,6 +58,11 @@ class AuditLog(models.Model):
         DELETE = 'DELETE', 'Deleted'
 
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    hospital = models.ForeignKey(
+        'tenants.Hospital', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='audit_logs',
+        help_text='Kis hospital ka record touch hua - tenant-wise audit trail filter ke liye',
+    )
     action = models.CharField(max_length=10, choices=Action.choices)
     model_name = models.CharField(max_length=50)
     object_id = models.CharField(max_length=50)
@@ -48,6 +72,7 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+        indexes = [models.Index(fields=['hospital', '-timestamp'])]
 
     def __str__(self):
         return f"{self.get_action_display()} {self.model_name} #{self.object_id} by {self.user}"

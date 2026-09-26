@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import Invoice, InvoiceItem, Payment
+from tenants.admin_mixins import TenantAdminMixin
 
 class InvoiceItemInline(admin.TabularInline):
     model = InvoiceItem
@@ -11,7 +12,7 @@ class PaymentInline(admin.TabularInline):
     readonly_fields = ('transaction_id',)
 
 @admin.register(Invoice)
-class InvoiceAdmin(admin.ModelAdmin):
+class InvoiceAdmin(TenantAdminMixin, admin.ModelAdmin):
     list_display = ('invoice_number', 'patient', 'total_amount', 'amount_paid', 'balance_due', 'status', 'created_at')
     readonly_fields = ('invoice_number',)
     inlines = [InvoiceItemInline, PaymentInline]

@@ -14,3 +14,8 @@ from django.core.asgi import get_asgi_application
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hospital_system.settings')
 
 application = get_asgi_application()
+
+# wsgi.py jaisa hi rationale - URLconf startup pe preload (dekho wsgi.py comment)
+from django.urls import get_resolver  # noqa: E402
+
+get_resolver().url_patterns
