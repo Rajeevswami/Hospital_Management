@@ -264,3 +264,32 @@ class TestStaffCreateFromAdminUI:
         assert User.objects.normalize_email("Asha@ACME-Test.COM") == expected
         assert User.all_objects.normalize_email("Asha@ACME-Test.COM") == expected
         assert User.unscoped.normalize_email("Asha@ACME-Test.COM") == expected
+
+    def test_admin_can_create_doctor_profile_from_doctors_page(self, setup_hospital):
+        """
+        /doctors/add/ bhi User ka ModelForm use karta hai - ModelForm._post_clean
+        instance.full_clean() chalata hai, isliye wahan bhi wahi 500 aata tha.
+        """
+        self._active_plan(setup_hospital["hospital"])
+        client = Client()
+        client.force_login(setup_hospital["admin"])
+
+        resp = client.post(
+            reverse("doctors:create"),
+            {
+                "username": "ravi.doc", "first_name": "Ravi", "last_name": "Sharma",
+                "email": "Ravi@ACME-Test.COM", "phone": "9000000003", "password": "DocPass!123",
+                "specialization": "Cardiology", "qualification": "MD, DM",
+                "experience_years": 8, "consultation_fee": "800.00",
+                "available_days": "Mon,Tue,Wed,Thu,Fri",
+                "available_from": "09:00", "available_to": "17:00",
+            },
+            HTTP_HOST="acme.testserver",
+        )
+
+        assert resp.status_code == 302, getattr(resp, "context", None)
+        doctor = Doctor.all_objects.get(user__username="ravi.doc")
+        assert doctor.hospital == setup_hospital["hospital"]
+        assert doctor.specialization == "Cardiology"
+        assert doctor.user.email == "Ravi@acme-test.com"
+        assert doctor.user.check_password("DocPass!123")

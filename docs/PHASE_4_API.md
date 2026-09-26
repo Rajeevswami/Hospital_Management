@@ -162,7 +162,7 @@ python manage.py spectacular --file schema.yml --validate   # schema sanity
 
 ```
 pytest tests/test_api.py    -> 46 passed
-pytest tests/               -> 163 passed, coverage 83%
+pytest tests/               -> 166 passed, coverage 84%
 manage.py check             -> 2 issues (axes.W006, auth.W004) - dono pre-existing
 spectacular --validate      -> Errors: 0, Warnings: 18 (7 unique)
 ```

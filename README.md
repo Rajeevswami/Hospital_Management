@@ -413,7 +413,7 @@ python manage.py train_no_show --hospital acme
 ## Tests
 
 ```bash
-pytest                                        # 163 tests
+pytest                                        # 166 tests
 pytest --cov=. --cov-fail-under=70            # coverage gate (abhi ~83%)
 pytest tests/test_tenant_isolation.py         # sirf isolation
 pytest tests/test_api.py                      # sirf API
@@ -422,7 +422,7 @@ pytest tests/test_api.py                      # sirf API
 | Suite | Tests | Kya cover karta hai |
 |---|---|---|
 | `test_tenant_isolation.py` | 16 | login, ORM, forms, middleware, cross-tenant 404 |
-| `test_core_flows.py` | 9 | booking, billing + PDF, RBAC |
+| `test_core_flows.py` | 12 | booking, billing + PDF, RBAC, staff/doctor create form |
 | `test_data_backfill.py` | 8 | purana data → Default Hospital (migration rewind) |
 | `test_subscriptions.py` | 45 | plans, Razorpay webhook, gating |
 | `test_no_show.py` | 35 | rules, features/leakage, Celery, training, commands |
@@ -434,7 +434,7 @@ pytest with coverage gate → OpenAPI schema validation → Docker image build +
 
 pytest **Python 3.11 (Django 5.2 LTS) aur 3.12 (Django 6)** — dono matrix mein,
 Postgres 16 + Redis service containers ke against chalta hai. Latest run:
-163 passed / 83% coverage dono Python versions pe.
+166 passed / 84% coverage dono Python versions pe.
 
 ---
 
