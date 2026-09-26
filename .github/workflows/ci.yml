@@ -81,10 +81,30 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
 
       - name: Run tests with coverage (>=70% gate)
+        id: pytest
+        shell: bash
         run: |
+          set -o pipefail
           python -m pytest tests/ \
             --cov=. --cov-report=term-missing --cov-report=xml \
-            --cov-fail-under=70 -q
+            --cov-fail-under=70 -q 2>&1 | tee pytest-output.txt
+
+      # Log download runner se bahar aksar blocked hota hai, isliye failure ka
+      # summary seedha PR pe comment kar do - debug karne ke liye.
+      - name: Comment failure summary on PR
+        if: failure() && steps.pytest.outcome == 'failure' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo "### pytest failed (job: ${{ github.run_id }})"
+            echo '```'
+            tail -n 150 pytest-output.txt
+            echo '```'
+          } > /tmp/pytest-summary.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --body-file /tmp/pytest-summary.md
 
       - name: Validate OpenAPI schema
         run: python manage.py spectacular --file /tmp/schema.yml --validate
