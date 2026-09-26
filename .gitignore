@@ -20,6 +20,7 @@ backups/
 ml_models/
 # pytest coverage artifacts (Phase 5)
 .coverage
+coverage.xml
 htmlcov/
 .pytest_cache/
 # .env.production / .env.local etc - sirf .env.example track hota hai
