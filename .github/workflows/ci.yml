@@ -104,9 +104,16 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### pytest failed (job: ${{ github.run_id }})"
+            echo "### pytest failed (run ${{ github.run_id }})"
+            echo
+            echo "#### Failed tests"
             echo '```'
-            tail -n 150 pytest-output.txt
+            sed -n '/short test summary info/,/passed\|failed\|error/p' pytest-output.txt | head -n 60
+            echo '```'
+            echo
+            echo "#### Tracebacks"
+            echo '```'
+            sed -n '/=\+ FAILURES =\+/,/=\+ \(warnings summary\|tests coverage\) =\+/p' pytest-output.txt | head -n 250
             echo '```'
           } > /tmp/pytest-summary.md
           gh pr comment "${{ github.event.pull_request.number }}" \
