@@ -123,6 +123,24 @@ jobs:
           gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" --body-file /tmp/pytest-summary.md
 
+      # Green run ka bhi record PR pe rakho (counts + coverage TOTAL line).
+      # Runner ke log/artifact sandbox se aksar readable nahi hote.
+      - name: Comment pass summary on PR
+        if: success() && steps.pytest.outcome == 'success' && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo "### pytest passed (run ${{ github.run_id }})"
+            echo
+            echo '```'
+            grep -E '^[0-9]+ passed|passed,|TOTAL' pytest-output.txt | tail -n 5
+            echo '```'
+          } > /tmp/pytest-pass.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" --body-file /tmp/pytest-pass.md
+
       - name: Validate OpenAPI schema
         run: python manage.py spectacular --file /tmp/schema.yml --validate
 
