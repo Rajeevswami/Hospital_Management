@@ -16,7 +16,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ---------------- SECURITY ----------------
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-CHANGE-THIS-IN-PRODUCTION')
 DEBUG = config('DEBUG', default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=Csv())
+# `.env` mein `ALLOWED_HOSTS=` (khaali) likha ho to python-decouple default nahi
+# deta - empty string deta hai, aur default '127.0.0.1,localhost' kho jaata tha
+# (phir http://127.0.0.1:8000 pe DisallowedHost 400). Blank = default maano.
+_ALLOWED_HOSTS_RAW = config('ALLOWED_HOSTS', default='').strip()
+ALLOWED_HOSTS = Csv()(_ALLOWED_HOSTS_RAW or '127.0.0.1,localhost')
 
 # MULTI-TENANCY (Phase 1): subdomain scheme ke liye wildcard host chahiye,
 # warna Django har tenant subdomain pe DisallowedHost (400) dega.
