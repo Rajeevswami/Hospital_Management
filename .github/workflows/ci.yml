@@ -17,6 +17,12 @@ on:
 env:
   PYTHON_VERSION: "3.12"
 
+# Default token permissions repo pe read-only ho sakti hain - failure summary
+# PR pe comment karne ke liye pull-requests:write chahiye.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
     name: Django checks + pytest
