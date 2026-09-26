@@ -4,8 +4,11 @@ from .models import AuditLog
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
+    # Audit trail platform-level hai (superuser only) - isliye tenant-scoped nahi,
+    # par tenant-wise filter kar sakte hain.
+    list_filter_extra = ('hospital',)
     list_display = ('timestamp', 'user', 'action', 'model_name', 'object_id', 'object_repr', 'ip_address')
-    list_filter = ('action', 'model_name')
+    list_filter = ('action', 'model_name', 'hospital')
     search_fields = ('object_repr', 'user__username')
     readonly_fields = [f.name for f in AuditLog._meta.fields]
 

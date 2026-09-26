@@ -11,6 +11,8 @@ from appointments.models import Appointment
 from pharmacy.models import Medicine, Prescription
 from billing.models import Invoice, Payment
 
+from subscriptions.gating import check_feature
+
 
 @login_required
 def home(request):
@@ -27,7 +29,23 @@ def home(request):
     elif user.is_pharmacist:
         context.update(_pharmacist_stats())
 
+    # Phase 3: AI no-show alerts - sirf jab plan mein ai_no_show on ho.
+    # Doctor ko sirf apne appointments dikhte hain (existing RBAC ke hisaab se).
+    context['ai_no_show_enabled'], _reason = check_feature(request, 'ai_no_show')
+    if context['ai_no_show_enabled']:
+        context['high_risk_appointments'] = _high_risk_appointments(user)
+
     return render(request, 'dashboard/home.html', context)
+
+
+def _high_risk_appointments(user):
+    from ml_engine.models import AppointmentRisk
+
+    risks = AppointmentRisk.high_risk_upcoming()
+    doctor = getattr(user, 'doctor_profile', None)
+    if user.is_doctor and doctor is not None:
+        risks = [r for r in risks if r.appointment.doctor_id == doctor.pk]
+    return risks
 
 
 def _admin_stats(today):

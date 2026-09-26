@@ -1,8 +1,28 @@
 __pycache__/
 *.pyc
 db.sqlite3
+test_db.sqlite3
+*.sqlite3
+*.sqlite3-journal
 .env
 staticfiles/
 media/
 venv/
 .DS_Store
+
+# ---- SaaS migration (Phase 0+) ----
+# NOTE: git mein trailing inline comments nahi chalte - comment apni line pe likho.
+# local DB dumps - kabhi commit nahi
+backups/
+# pg_dump custom-format backups
+*.dump
+# Phase 3: joblib model artifacts (regenerate hote hain, repo mein nahi jaayenge)
+ml_models/
+# pytest coverage artifacts (Phase 5)
+.coverage
+coverage.xml
+htmlcov/
+.pytest_cache/
+# .env.production / .env.local etc - sirf .env.example track hota hai
+.env.*
+!.env.example

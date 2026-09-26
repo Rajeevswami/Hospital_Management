@@ -1,8 +1,9 @@
 from django import forms
 from .models import Patient
+from tenants.forms import TenantModelForm
 
 
-class PatientForm(forms.ModelForm):
+class PatientForm(TenantModelForm):
     class Meta:
         model = Patient
         fields = [

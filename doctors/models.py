@@ -1,8 +1,10 @@
 from django.db import models
 from django.conf import settings
 
+from tenants.models import TenantModel
 
-class Doctor(models.Model):
+
+class Doctor(TenantModel):
     """
     Links to a User with role=DOCTOR (that user logs in to see their own
     appointments/patients). One Doctor profile per doctor login.

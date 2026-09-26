@@ -21,6 +21,9 @@
                 {% if user.is_admin or user.is_doctor or user.is_receptionist %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'doctors:list' %}"><i class="bi bi-person-badge"></i> Doctors</a></li>
                 <li class="nav-item"><a class="nav-link" href="{% url 'appointments:list' %}"><i class="bi bi-calendar-check"></i> Appointments</a></li>
+                {% if feature_flags.ai_no_show %}
+                <li class="nav-item"><a class="nav-link" href="{% url 'ml_engine:no_show_dashboard' %}"><i class="bi bi-robot"></i> AI Risk</a></li>
+                {% endif %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'wards:admission_list' %}"><i class="bi bi-hospital"></i> Admissions</a></li>
                 <li class="nav-item"><a class="nav-link" href="{% url 'wards:ward_status' %}"><i class="bi bi-building"></i> Wards</a></li>
                 {% endif %}
@@ -33,6 +36,9 @@
                 {% endif %}
                 {% if user.is_admin %}
                 <li class="nav-item"><a class="nav-link" href="{% url 'accounts:staff_list' %}"><i class="bi bi-person-gear"></i> Staff</a></li>
+                <li class="nav-item"><a class="nav-link" href="{% url 'subscriptions:billing' %}"><i class="bi bi-credit-card"></i> Plan
+                    {% if current_plan %}<span class="badge bg-info text-dark ms-1">{{ current_plan.name }}</span>{% else %}<span class="badge bg-warning text-dark ms-1">No plan</span>{% endif %}
+                </a></li>
                 {% endif %}
             </ul>
         </div>

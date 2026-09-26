@@ -2,9 +2,10 @@ from django import forms
 from django.core.exceptions import ValidationError
 from .models import Appointment
 from doctors.models import Doctor
+from tenants.forms import TenantModelForm
 
 
-class AppointmentForm(forms.ModelForm):
+class AppointmentForm(TenantModelForm):
     class Meta:
         model = Appointment
         fields = ['patient', 'doctor', 'appointment_date', 'appointment_time', 'reason']

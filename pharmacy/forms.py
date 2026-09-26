@@ -3,9 +3,10 @@ from django.forms import inlineformset_factory
 from .models import Medicine, Prescription, PrescriptionItem
 from patients.models import Patient
 from doctors.models import Doctor
+from tenants.forms import TenantModelForm
 
 
-class MedicineForm(forms.ModelForm):
+class MedicineForm(TenantModelForm):
     class Meta:
         model = Medicine
         fields = ['name', 'manufacturer', 'batch_number', 'unit_price', 'stock_quantity', 'reorder_level', 'expiry_date']
@@ -18,7 +19,7 @@ class MedicineForm(forms.ModelForm):
                 field.widget.attrs['class'] = 'form-control'
 
 
-class PrescriptionForm(forms.ModelForm):
+class PrescriptionForm(TenantModelForm):
     class Meta:
         model = Prescription
         fields = ['patient', 'doctor', 'notes']
@@ -31,7 +32,7 @@ class PrescriptionForm(forms.ModelForm):
         self.fields['doctor'].queryset = Doctor.objects.filter(is_active=True)
 
 
-class PrescriptionItemForm(forms.ModelForm):
+class PrescriptionItemForm(TenantModelForm):
     class Meta:
         model = PrescriptionItem
         fields = ['medicine', 'quantity', 'dosage_instructions']

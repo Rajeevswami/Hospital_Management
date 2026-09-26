@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Checkout{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-dark text-white">Complete your subscription</div>
+      <div class="card-body">
+        <p>Plan: <strong>{{ subscription.plan.name }}</strong>
+           (&#8377;{{ subscription.plan.price }} / {{ subscription.plan.interval }})</p>
+        <p class="text-muted small">Payment Razorpay ke secure checkout pe hoga. Recurring
+          subscription hai - har period pe automatically charge hoga, jab chahe cancel kar sakte ho.</p>
+        <button id="rzp-pay" class="btn btn-primary">Pay with Razorpay</button>
+        <a href="{% url 'subscriptions:billing' %}" class="btn btn-link">Cancel</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{# json_script data ko <script type="application/json"> mein safe-escape karke daalta hai #}
+{{ checkout|json_script:"rzp-data" }}
+<script>
+(function () {
+  // checkout data server se aaya hai (public key only - secret kabhi nahi)
+  const data = JSON.parse(document.getElementById('rzp-data').textContent);
+  document.getElementById('rzp-pay').addEventListener('click', function () {
+    const rzp = new Razorpay({
+      key: data.key,
+      subscription_id: data.subscription_id,
+      name: data.name,
+      description: data.description,
+      customer_id: data.customer_id,
+      prefill: data.prefill,
+      notes: data.notes,
+      theme: data.theme,
+      handler: function (resp) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = "{% url 'subscriptions:checkout_callback' %}";
+        ['razorpay_subscription_id', 'razorpay_payment_id', 'razorpay_signature'].forEach(function (k) {
+          const i = document.createElement('input');
+          i.type = 'hidden'; i.name = k; i.value = resp[k];
+          form.appendChild(i);
+        });
+        const csrf = document.createElement('input');
+        csrf.type = 'hidden'; csrf.name = 'csrfmiddlewaretoken'; csrf.value = '{{ csrf_token }}';
+        form.appendChild(csrf);
+        document.body.appendChild(form);
+        form.submit();
+      }
+    });
+    rzp.open();
+  });
+})();
+</script>
+{% endblock %}

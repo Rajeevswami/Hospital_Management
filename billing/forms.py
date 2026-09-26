@@ -2,16 +2,17 @@ from django import forms
 from django.core.exceptions import ValidationError
 from .models import Payment
 from patients.models import Patient
+from tenants.forms import TenantFormMixin, TenantModelForm
 
 
-class PatientSelectForm(forms.Form):
+class PatientSelectForm(TenantFormMixin, forms.Form):
     patient = forms.ModelChoiceField(
         queryset=Patient.objects.all(),
         widget=forms.Select(attrs={'class': 'form-select'})
     )
 
 
-class PaymentForm(forms.ModelForm):
+class PaymentForm(TenantModelForm):
     class Meta:
         model = Payment
         fields = ['amount', 'mode']

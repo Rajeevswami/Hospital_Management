@@ -2,9 +2,10 @@ from django import forms
 from .models import Admission, Bed
 from patients.models import Patient
 from doctors.models import Doctor
+from tenants.forms import TenantModelForm
 
 
-class AdmissionForm(forms.ModelForm):
+class AdmissionForm(TenantModelForm):
     class Meta:
         model = Admission
         fields = ['patient', 'doctor', 'bed', 'diagnosis', 'notes']
@@ -29,7 +30,7 @@ class AdmissionForm(forms.ModelForm):
         return bed
 
 
-class DischargeForm(forms.ModelForm):
+class DischargeForm(TenantModelForm):
     class Meta:
         model = Admission
         fields = ['notes']
