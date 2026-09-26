@@ -14,8 +14,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-env:
-  PYTHON_VERSION: "3.12"
 
 # Default token permissions repo pe read-only ho sakti hain - failure summary
 # PR pe comment karne ke liye pull-requests:write chahiye.
@@ -25,8 +23,14 @@ permissions:
 
 jobs:
   test:
-    name: Django checks + pytest
+    name: Django checks + pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # Python 3.11 pe Django 5.2 LTS install hota hai, 3.12 pe Django 6
+    # (pin: Django>=5.2.17,<6.1). Dono paths CI mein verify hote hain.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
 
     services:
       postgres:
@@ -71,7 +75,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install system deps (psycopg2 / Pillow)
@@ -132,9 +136,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "### pytest passed (run ${{ github.run_id }})"
+            echo "### pytest passed (run ${{ github.run_id }}, Python ${{ matrix.python-version }})"
             echo
             echo '```'
+            python -c "import sys, django; print('Python', sys.version.split()[0], '| Django', django.get_version())"
             grep -E '^[0-9]+ passed|passed,|TOTAL' pytest-output.txt | tail -n 5
             echo '```'
           } > /tmp/pytest-pass.md

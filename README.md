@@ -126,20 +126,43 @@ API docs: http://localhost:8000/api/docs/
 
 ## Manual setup (bina Docker)
 
-Python **3.12+** chahiye (Django 6 ke liye).
+Python **3.11+** chahiye. Python 3.11 pe Django **5.2 LTS** install hota hai,
+Python 3.12+ pe Django 6 — dono par test suite pass karta hai
+(`requirements.txt` mein pin `Django>=5.2.17,<6.1` hai).
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+git clone https://github.com/Rajeevswami/hospital-management.git
+cd hospital-management
+
+python3 -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt        # tests ke liye
+pip install -r requirements-dev.txt                   # tests ke liye (optional)
 
-cp .env.example .env                        # SECRET_KEY, DATABASE_URL, SAAS_ROOT_DOMAIN bharo
+cp .env.example .env          # Windows: copy .env.example .env
+                              # Local ke liye isme kuch bharne ki zaroorat nahi:
+                              # DATABASE_URL khaali = SQLite (db.sqlite3),
+                              # DEBUG=True, SAAS_ROOT_DOMAIN=localhost,
+                              # CELERY_TASK_ALWAYS_EAGER=True (Redis ki zaroorat nahi)
 
-python manage.py migrate
-python manage.py manage_plans               # 4 plans seed (free/starter/growth/scale)
-python manage.py createsuperuser            # platform admin (hospital=None)
+python manage.py migrate                              # saari migrations
+python manage.py manage_plans                         # 4 plans seed (free/starter/growth/scale)
+
+# Ek tenant (hospital) + uska admin user banao:
+python manage.py provision_tenant --name "Acme Hospital" --slug acme \
+  --admin-username admin --admin-password 'ChangeMe!123'
+python manage.py assign_plan --hospital acme --plan scale
+
 python manage.py runserver
 ```
+
+Ab browser mein **http://localhost:8000/accounts/login/** kholo aur
+`admin` / `ChangeMe!123` se login karo.
+
+Platform admin (hospital=None, saare tenants dikhte hain) chahiye to:
+`python manage.py createsuperuser`.
+
+> `DATABASE_URL` khaali chhodne par app SQLite use karta hai. Production mein
+> `DATABASE_URL=postgres://user:pass@host:5432/db` set karo.
 
 Redis + worker (async no-show scoring ke liye):
 
