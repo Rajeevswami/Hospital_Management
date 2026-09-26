@@ -413,7 +413,7 @@ python manage.py train_no_show --hospital acme
 ## Tests
 
 ```bash
-pytest                                        # 159 tests
+pytest                                        # 163 tests
 pytest --cov=. --cov-fail-under=70            # coverage gate (abhi ~83%)
 pytest tests/test_tenant_isolation.py         # sirf isolation
 pytest tests/test_api.py                      # sirf API
@@ -427,9 +427,14 @@ pytest tests/test_api.py                      # sirf API
 | `test_subscriptions.py` | 45 | plans, Razorpay webhook, gating |
 | `test_no_show.py` | 35 | rules, features/leakage, Celery, training, commands |
 | `test_api.py` | 46 | JWT, RBAC, tenant isolation, gating, Swagger |
+| `test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) settings ko todne na paayein |
 
 CI (`.github/workflows/ci.yml`) har push pe: Django checks → pending-migration check →
 pytest with coverage gate → OpenAPI schema validation → Docker image build + smoke test.
+
+pytest **Python 3.11 (Django 5.2 LTS) aur 3.12 (Django 6)** — dono matrix mein,
+Postgres 16 + Redis service containers ke against chalta hai. Latest run:
+163 passed / 83% coverage dono Python versions pe.
 
 ---
 

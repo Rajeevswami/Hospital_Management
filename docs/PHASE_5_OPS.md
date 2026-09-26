@@ -15,7 +15,8 @@ Sentry, Dockerfile + docker-compose (web/postgres/redis/celery), aur GitHub Acti
 | `tests/test_subscriptions.py` | 45 | plans, Razorpay webhook, feature gating |
 | `tests/test_no_show.py` | 35 | rules, features/leakage, Celery, training, commands |
 | `tests/test_api.py` | 46 | JWT, RBAC, tenant isolation, 402 gating, Swagger |
-| **Total** | **159** | **coverage 82.89%** (gate 70%) |
+| `tests/test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) crash na karein |
+| **Total** | **163** | **coverage 83%** (gate 70%) |
 
 Chalane ka tareeka:
 
@@ -162,7 +163,7 @@ python manage.py preflight --census
 
 ```
 pytest tests/ --cov=. --cov-fail-under=70
-  -> 159 passed
+  -> 163 passed
   -> Required test coverage of 70% reached. Total coverage: 82.89%
 
 python manage.py spectacular --file /tmp/schema.yml --validate

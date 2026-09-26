@@ -11,8 +11,8 @@ Base commit: `268431d360f05e1b6b63cda8506d0ae22508e847`
 | 1 | Multi-tenancy: `Hospital` model, FK backfill, tenant middleware, scoped managers, tenant-aware RBAC | **DONE** (33 tests pass, 75% coverage) | [docs/PHASE_1_MULTITENANCY.md](PHASE_1_MULTITENANCY.md) |
 | 2 | `Plan`, `Subscription`, Razorpay recurring, feature-gating decorator | **DONE** (45 naye tests, 78 total pass, 77% coverage) | [docs/PHASE_2_SUBSCRIPTIONS.md](PHASE_2_SUBSCRIPTIONS.md) |
 | 3 | `ml_engine` app: rule-based fallback → GradientBoosting, Celery task, dashboard alerts | **DONE** (35 naye tests, 113 total pass, 80% coverage) | [docs/PHASE_3_ML.md](PHASE_3_ML.md) |
-| 4 | DRF + tenant-aware ViewSets, JWT, drf-spectacular Swagger | **DONE** (46 naye tests, 159 total pass, 83% coverage) | [docs/PHASE_4_API.md](PHASE_4_API.md) |
-| 5 | pytest (≥70% coverage), tenant-isolation test, Sentry, Docker + compose, GitHub Actions | **DONE** (159 tests / 82.89% coverage, gate 70%; Sentry + Docker + CI added) — Docker build/CI run sandbox mein verify nahi hua | [docs/PHASE_5_OPS.md](PHASE_5_OPS.md) |
+| 4 | DRF + tenant-aware ViewSets, JWT, drf-spectacular Swagger | **DONE** (46 naye tests, 163 total pass, 83% coverage) | [docs/PHASE_4_API.md](PHASE_4_API.md) |
+| 5 | pytest (≥70% coverage), tenant-isolation test, Sentry, Docker + compose, GitHub Actions | **DONE** (163 tests / 83% coverage, gate 70%; Sentry + Docker + CI added) — GitHub Actions pe Python 3.11 (Django 5.2) + 3.12 (Django 6) matrix green, Docker image build + smoke test bhi green | [docs/PHASE_5_OPS.md](PHASE_5_OPS.md) |
 | 6 | README rewrite (Docker, .env, multi-tenant local testing) | **DONE** | [README.md](../README.md) |
 
 ## Migrations run karne ka standard sequence (har phase)
