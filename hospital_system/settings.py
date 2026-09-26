@@ -9,6 +9,8 @@ from pathlib import Path
 import dj_database_url
 from decouple import config, Csv
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ---------------- SECURITY ----------------
@@ -141,9 +143,22 @@ WSGI_APPLICATION = 'hospital_system.wsgi.application'
 # ---------------- DATABASE ----------------
 # Local dev (no .env DATABASE_URL set) -> SQLite, fast to start.
 # Production -> set DATABASE_URL=postgres://user:pass@host:port/dbname
+#
+# NOTE: `.env` mein `DATABASE_URL=` (khaali) likha ho to python-decouple
+# default NAHI deta - empty string wapas deta hai, aur dj_database_url usse
+# `UnknownSchemeError: Scheme '://'` pe phat jaata tha. Isliye blank/whitespace
+# ko bhi "SQLite use karo" maana jaata hai, taaki fresh checkout `cp
+# .env.example .env` ke baad seedha chal jaaye.
+_DEFAULT_DB_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+_DB_URL = config('DATABASE_URL', default='').strip() or _DEFAULT_DB_URL
+if '://' not in _DB_URL:
+    raise ImproperlyConfigured(
+        f"DATABASE_URL galat hai: {_DB_URL!r}. Expected format: "
+        "postgres://user:password@host:5432/dbname (ya blank chhod do SQLite ke liye)."
+    )
 DATABASES = {
     'default': dj_database_url.parse(
-        config('DATABASE_URL', default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}"),
+        _DB_URL,
         conn_max_age=600,   # persistent connections -> faster requests, no reconnect lag
         conn_health_checks=True,
     )
