@@ -203,3 +203,64 @@ class TestBillingFlow:
         assert pdf.status_code == 200
         assert pdf["Content-Type"] == "application/pdf"
         assert pdf.content[:4] == b"%PDF"
+
+
+class TestStaffCreateFromAdminUI:
+    """
+    Admin UI se staff banana - asli UserCreationForm path.
+
+    Regression: `AbstractUser.clean()` internally `self.__class__.objects
+    .normalize_email(...)` call karta hai. Jab `User.objects` plain
+    `TenantManager` tha to yahan `AttributeError` aata tha aur
+    POST /accounts/staff/add/ **500** deta tha - fresh install pe admin
+    koi doctor/receptionist add hi nahi kar sakta tha.
+    """
+
+    @staticmethod
+    def _active_plan(hospital):
+        from subscriptions.models import Plan, Subscription
+
+        plan = Plan.objects.create(
+            name="Scale", code="scale", price=4999,
+            patient_limit=-1, staff_limit=-1, features_json={},
+        )
+        now = timezone.now()
+        Subscription.all_objects.create(
+            hospital=hospital, plan=plan, status=Subscription.Status.ACTIVE,
+            current_period_start=now, current_period_end=now + dt.timedelta(days=30),
+        )
+
+    def test_admin_can_create_doctor_from_staff_form(self, setup_hospital):
+        self._active_plan(setup_hospital["hospital"])
+        client = Client()
+        client.force_login(setup_hospital["admin"])
+
+        resp = client.post(
+            reverse("accounts:staff_create"),
+            {
+                "username": "asha.doc",
+                "first_name": "Asha",
+                "last_name": "Verma",
+                "email": "Asha@ACME-Test.COM",   # domain uppercase - normalize hona chahiye
+                "phone": "9000000002",
+                "role": User.Role.DOCTOR,
+                "password1": "DocPass!123",
+                "password2": "DocPass!123",
+            },
+            HTTP_HOST="acme.testserver",
+        )
+
+        assert resp.status_code == 302, getattr(resp, "context", None)
+        created = User.all_objects.get(username="asha.doc")
+        assert created.hospital == setup_hospital["hospital"]
+        assert created.role == User.Role.DOCTOR
+        # normalize_email ne domain ko lowercase kiya (local-part waisa hi)
+        assert created.email == "Asha@acme-test.com"
+        assert created.check_password("DocPass!123")
+
+    def test_user_managers_expose_normalize_email(self, setup_hospital):
+        """`objects` / `all_objects` / `unscoped` - teeno pe helper maujood ho."""
+        expected = "Asha@acme-test.com"
+        assert User.objects.normalize_email("Asha@ACME-Test.COM") == expected
+        assert User.all_objects.normalize_email("Asha@ACME-Test.COM") == expected
+        assert User.unscoped.normalize_email("Asha@ACME-Test.COM") == expected

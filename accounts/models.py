@@ -5,6 +5,30 @@ from django.db import models
 from tenants.managers import TenantManager, UnscopedManager
 
 
+class TenantUserManager(TenantManager, UserManager):
+    """
+    Default manager: tenant-scoped queryset + Django ke UserManager helpers.
+
+    `UserManager` isliye zaroori hai kyunki `AbstractUser.clean()` internally
+    `self.__class__.objects.normalize_email(self.email)` call karta hai. Plain
+    `TenantManager` (jo `models.Manager` se banta hai) pe wo method hota hi nahi,
+    isliye koi bhi UserCreationForm (Staff → Add) save par 500 deta tha:
+        AttributeError: 'TenantManager' object has no attribute 'normalize_email'
+    """
+
+    # `UserManager.use_in_migrations = True` inherit hota hai - use OFF rakho,
+    # warna `makemigrations` har baar AlterModelManagers maangta hai. Tenant
+    # managers runtime tenant context pe depend karte hain, migrations mein
+    # serialize hona hi galat hai.
+    use_in_migrations = False
+
+
+class UnscopedUserManager(UnscopedManager, UserManager):
+    """`User.all_objects` - bina tenant filter, par UserManager helpers ke saath."""
+
+    use_in_migrations = False
+
+
 class User(AbstractUser):
     """
     Custom user model with hospital role baked in.
@@ -46,8 +70,8 @@ class User(AbstractUser):
     is_active_staff = models.BooleanField(default=True, help_text="Deactivate instead of deleting accounts")
 
     # objects -> current tenant ke staff; all_objects -> sab (auth backend / platform admin)
-    objects = TenantManager()
-    all_objects = UnscopedManager()
+    objects = TenantUserManager()
+    all_objects = UnscopedUserManager()
     # Django ke apne internals (createsuperuser, contrib.auth) ke liye unscoped manager
     unscoped = UserManager()
 
