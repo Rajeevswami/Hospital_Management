@@ -59,7 +59,11 @@ jobs:
       CELERY_BROKER_URL: redis://127.0.0.1:6379/0
       CELERY_TASK_ALWAYS_EAGER: "True"
       ML_MODEL_DIR: /tmp/ci_ml_models
-      ALLOWED_HOSTS: "*"
+      # ALLOWED_HOSTS deliberately set NAHI kiya: settings SAAS_ROOT_DOMAIN
+      # (testserver) se '.testserver' wildcard bana leta hai, aur Django test
+      # runner 'testserver' khud add karta hai. '*' dene se
+      # test_unrelated_host_is_rejected_by_django fail hota hai (evil.com
+      # allow ho jaata -> 400 ki jagah 302).
 
     steps:
       - uses: actions/checkout@v4

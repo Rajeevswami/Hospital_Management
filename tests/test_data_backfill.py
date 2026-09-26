@@ -53,7 +53,8 @@ def legacy_data(transactional_db):
     executor.migrate(PRE_BACKFILL_STATES)
     _apps.clear_cache()
 
-    year = timezone.now().year
+    now = timezone.now()
+    year = now.year
     with connection.cursor() as cur:
         cur.execute(
             "INSERT INTO core_idcounter (name, value, hospital_id) VALUES (%s, %s, NULL)",
@@ -69,9 +70,11 @@ def legacy_data(transactional_db):
                 "(patient_id, first_name, last_name, date_of_birth, gender, blood_group, "
                 " phone, address, emergency_contact_name, emergency_contact_phone, "
                 " known_allergies, registered_by_id, created_at, updated_at, hospital_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,datetime('now'),datetime('now'),NULL)",
+                # NOTE: timestamps PARAMETER se bhejte hain. datetime('now') SQLite ka
+                # function hai - Postgres pe "function datetime(unknown) does not exist".
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,NULL)",
                 [f"PAT-{year}-{i:04d}", f"Legacy{i}", "Patient", "1985-01-01", "M", "UNK",
-                 f"900000010{i}", "", "", "", ""],
+                 f"900000010{i}", "", "", "", "", now, now],
             )
         # legacy patient ka ASLI pk lo (auto-increment state test-order pe depend
         # na kare) aur invoice usi pe lagao
@@ -83,8 +86,8 @@ def legacy_data(transactional_db):
         cur.execute(
             "INSERT INTO billing_invoice "
             "(invoice_number, patient_id, status, created_by_id, created_at, hospital_id) "
-            "VALUES (%s, %s, 'PENDING', NULL, datetime('now'), NULL)",
-            [f"INV-{year}-0001", legacy_patient_id],
+            "VALUES (%s, %s, 'PENDING', NULL, %s, NULL)",
+            [f"INV-{year}-0001", legacy_patient_id, now],
         )
         cur.execute("SELECT id FROM billing_invoice WHERE invoice_number = %s", [f"INV-{year}-0001"])
         invoice_id = cur.fetchone()[0]
