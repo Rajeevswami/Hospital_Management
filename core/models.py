@@ -15,16 +15,16 @@ class IDCounter(models.Model):
     nothing to lock, so concurrent requests can't be serialized. A counter row
     that always exists, locked via select_for_update, solves this completely.
 
-    MULTI-TENANT (Phase 1): counter ab per-hospital hai. Naya hospital apni
-    numbering 1 se shuru karta hai, purane hospital ki sequence aage badhti
-    rehti hai - isliye data migration purane counter rows ko 'Default Hospital'
-    pe assign karti hai. ID ka FORMAT wahi rehta hai (PAT-2026-0001).
+    MULTI-TENANT (Phase 1): the counter is now per-hospital. A new hospital
+    starts its numbering at 1, while the old hospital's sequence keeps moving
+    forward - that is why the data migration assigns the old counter rows to
+    'Default Hospital'. The ID FORMAT stays the same (PAT-2026-0001).
     """
     name = models.CharField(max_length=50)
     hospital = models.ForeignKey(
         'tenants.Hospital', on_delete=models.CASCADE, null=True, blank=True,
         related_name='id_counters',
-        help_text='Null = legacy/platform counter (multi-tenant se pehle ka)',
+        help_text='Null = legacy/platform counter (from before multi-tenancy)',
     )
     value = models.PositiveIntegerField(default=0)
 
@@ -61,7 +61,7 @@ class AuditLog(models.Model):
     hospital = models.ForeignKey(
         'tenants.Hospital', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='audit_logs',
-        help_text='Kis hospital ka record touch hua - tenant-wise audit trail filter ke liye',
+        help_text="Which hospital's record was touched - for tenant-wise audit trail filtering",
     )
     action = models.CharField(max_length=10, choices=Action.choices)
     model_name = models.CharField(max_length=50)

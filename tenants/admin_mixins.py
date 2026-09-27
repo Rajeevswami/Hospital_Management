@@ -1,13 +1,13 @@
 """
-Django admin ko tenant-aware banata hai - bina existing admin registrations tode.
+Makes the Django admin tenant-aware - without breaking existing admin registrations.
 
 Behaviour:
-  * Tenant admin (user.hospital set)  -> sirf apne hospital ka data dikhega,
-    naye records apne hospital mein banenge, hospital field form mein nahi dikhega.
-  * Platform super-admin (hospital=None, is_platform_admin=True) -> sab kuch dikhega,
+  * Tenant admin (user.hospital set)  -> sees only their hospital's data,
+    new records are created in their hospital, the hospital field is hidden in the form.
+  * Platform super-admin (hospital=None, is_platform_admin=True) -> sees everything,
     hospital field editable rahega.
 
-Isko har ModelAdmin mein mix karo:  class PatientAdmin(TenantAdminMixin, admin.ModelAdmin)
+Mix this into every ModelAdmin:  class PatientAdmin(TenantAdminMixin, admin.ModelAdmin)
 """
 from django.contrib import admin
 
@@ -24,7 +24,7 @@ class TenantAdminMixin:
         if hospital is not None:
             qs = qs.filter(hospital=hospital)
         elif not getattr(request.user, "is_platform_admin", False) and not request.user.is_superuser:
-            # Na tenant hai na platform rights -> kuch mat dikhao
+            # No tenant and no platform rights -> show nothing
             qs = qs.none()
         return qs
 
@@ -39,7 +39,7 @@ class TenantAdminMixin:
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(super().get_readonly_fields(request, obj))
-        # Tenant admin hospital badal nahi sakta (data ek tenant se doosre mein move nahi hoga)
+        # A tenant admin cannot change hospital (data must not move between tenants)
         if self._is_tenant_scoped(request) and "hospital" not in readonly:
             readonly.append("hospital")
         return readonly
@@ -50,7 +50,7 @@ class TenantAdminMixin:
         super().save_model(request, obj, form, change)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        """FK dropdowns (patient/doctor/bed...) bhi current tenant tak limited."""
+        """FK dropdowns (patient/doctor/bed...) are also limited to the current tenant."""
         hospital = getattr(request.user, "hospital", None)
         if hospital is not None:
             related = getattr(db_field, "related_model", None)
@@ -65,7 +65,7 @@ class TenantAdminMixin:
 
 
 class TenantAdmin(TenantAdminMixin, admin.ModelAdmin):
-    """Ready-made base class - naye tenant models ke liye."""
+    """Ready-made base class - for new tenant models."""
 
     list_display_extra = ()
 

@@ -1,16 +1,16 @@
 """
-Phase 1.3 ka data-loss guard.
+Phase 1.3's data-loss guard.
 
-Production mein multi-tenancy se PEHLE ka data hoga (hospital column NULL).
-`tenants.0002_assign_default_hospital` usse "Default Hospital" ko assign karti
-hai. Yeh test verify karta hai ki:
+There will be data from BEFORE multi-tenancy in production (hospital column NULL).
+`tenants.0002_assign_default_hospital` assigns it to "Default Hospital".
+These tests verify that:
 
-  * koi row NULL nahi bachti (silently orphan nahi hoti)
-  * child rows parent ka hospital inherit karti hain
-  * ID counters Default Hospital pe move hote hain -> PAT-...-0001 sequence
-    RESTART nahi hoti, aage se continue hoti hai
-  * superuser (platform admin) ka hospital NULL reh jaata hai
-  * NOT NULL migration ka safety check NULL row pe RUK jaata hai
+  * no row stays NULL (nothing is silently orphaned)
+  * child rows inherit the parent's hospital
+  * ID counters move to Default Hospital -> the PAT-...-0001 sequence does NOT
+    restart, it continues from where it was
+  * the superuser's (platform admin) hospital stays NULL
+  * the NOT NULL migration's safety check STOPS on NULL rows
 """
 import importlib
 
@@ -30,10 +30,10 @@ pytestmark = pytest.mark.django_db
 
 backfill = importlib.import_module("tenants.migrations.0002_assign_default_hospital")
 
-# Test DB mein saari migrations (NOT NULL dahil) already applied hoti hain.
-# Isliye migration executor se schema ko us state pe LE JAATE hain jahan hospital
-# column abhi NULLABLE hai (backfill se theek pehle) - production ka exact
-# scenario. pytest-django test ke baad transaction rollback karta hai.
+# In the test DB all migrations (including NOT NULL) are already applied.
+# So we use the migration executor to take the schema back to the state where
+# the hospital column is still NULLABLE (right before the backfill) - the exact
+# production scenario. pytest-django rolls the transaction back after the test.
 PRE_BACKFILL_APPS = ("patients", "billing")
 PRE_BACKFILL_STATES = [
     ("patients", "0003_patient_hospital_alter_patient_patient_id_and_more"),
@@ -43,9 +43,9 @@ PRE_BACKFILL_STATES = [
 
 @pytest.fixture
 def legacy_data(transactional_db):
-    # transactional_db (na ki db) isliye: yeh fixture migration executor se DDL
-    # chalata hai, aur SQLite schema changes ko transaction ke andar allow nahi karta.
-    """Multi-tenancy se PEHLE jaisa data: hospital column NULL."""
+    # transactional_db (not db) because: this fixture runs DDL through the
+    # migration executor, and SQLite does not allow schema changes inside a transaction.
+    """Data as it was BEFORE multi-tenancy: hospital column NULL."""
     from django.apps import apps as _apps
     from django.db.migrations.executor import MigrationExecutor
 
@@ -70,14 +70,14 @@ def legacy_data(transactional_db):
                 "(patient_id, first_name, last_name, date_of_birth, gender, blood_group, "
                 " phone, address, emergency_contact_name, emergency_contact_phone, "
                 " known_allergies, registered_by_id, created_at, updated_at, hospital_id) "
-                # NOTE: timestamps PARAMETER se bhejte hain. datetime('now') SQLite ka
-                # function hai - Postgres pe "function datetime(unknown) does not exist".
+                # NOTE: timestamps are passed as PARAMETERS. datetime('now') is a
+                # SQLite function - on Postgres: "function datetime(unknown) does not exist".
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,NULL)",
                 [f"PAT-{year}-{i:04d}", f"Legacy{i}", "Patient", "1985-01-01", "M", "UNK",
                  f"900000010{i}", "", "", "", "", now, now],
             )
-        # legacy patient ka ASLI pk lo (auto-increment state test-order pe depend
-        # na kare) aur invoice usi pe lagao
+        # take the legacy patient's REAL pk (the auto-increment state does not depend on
+        # the test order) and put the invoice on it
         cur.execute(
             "SELECT id FROM patients_patient WHERE patient_id = %s",
             [f"PAT-{year}-0001"],
@@ -100,10 +100,10 @@ def legacy_data(transactional_db):
 
     yield {"year": year, "patient_id": legacy_patient_id, "invoice_id": invoice_id}
 
-    # Teardown: test ne schema ko pre-backfill state pe chhoda hai. Baaki tests
-    # (aur agle test-run) ke liye wapas fully-migrated state pe le jaao. Forward
-    # migration ka safety check NULL rows pe RUK jaata hai, isliye pehle legacy
-    # rows ko clean kar dete hain (test DB session ke end pe drop ho hi jaata hai).
+    # Teardown: the test left the schema in the pre-backfill state. For the
+    # remaining tests (and the next test run), take it back to the fully-migrated
+    # state. The forward migration's safety check STOPS on NULL rows, so first
+    # clean up the legacy rows (they would be dropped at the end of the test DB session anyway).
     from django.db.migrations.loader import MigrationLoader
 
     with connection.cursor() as cur:
@@ -145,11 +145,11 @@ class TestDataBackfill:
         assert _null_counts() == {"patients": 0, "invoices": 0, "invoice_items": 0}
 
     def test_id_sequence_continues_instead_of_restarting(self, legacy_data, make_hospital):
-        """Sabse important data-integrity check: PAT-<year>-0008 aana chahiye, 0001 nahi."""
+        """The most important data-integrity check: PAT-<year>-0008 must come, not 0001."""
         year = legacy_data["year"]
         backfill.forwards(real_apps, None)
         default = Hospital.objects.get(slug="default")
-        other = make_hospital(name="Naya", slug="naya")
+        other = make_hospital(name="New Hospital", slug="naya")
 
         with tenant_scope(default):
             existing = Patient.all_objects.get(patient_id=f"PAT-{year}-0003")
@@ -174,7 +174,7 @@ class TestDataBackfill:
         with tenant_scope(default):
             patient = Patient.all_objects.get(patient_id=f"PAT-{year}-0001")
             inv = Invoice.objects.create(patient=patient)
-        assert inv.invoice_number == f"INV-{year}-0003"   # 2 ke baad 3
+        assert inv.invoice_number == f"INV-{year}-0003"   # 3 after 2
 
 
 class TestSuperuserAndSafetyCheck:

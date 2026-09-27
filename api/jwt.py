@@ -1,20 +1,20 @@
 """
 Tenant-aware JWT.
 
-SimpleJWT ka default serializer sirf user_id/token_type dalta hai. Hum do claims
-aur add karte hain:
+SimpleJWT's default serializer only adds user_id/token_type. We add two more
+claims:
 
-    hospital  : kis hospital ka token hai (slug)
-    role      : user ka role
+    hospital  : which hospital the token belongs to (slug)
+    role      : the user's role
 
-Yeh sirf CONVENIENCE hai (client ko extra /api/me/ call na karna pade).
-Authorization ka asli faisla server pe hi hota hai:
-  * JWTAuthentication user ko tenant-scoped manager se load karta hai, isliye
-    hospital A ka token hospital B ke subdomain pe kaam hi nahi karta
-  * permissions (IsTenantMember + role + plan) har request pe dobara check hote hain
+This is CONVENIENCE only (so the client does not need an extra /api/me/ call).
+The real authorization decision happens on the server:
+  * JWTAuthentication loads the user via the tenant-scoped manager, so a
+    hospital A token simply does not work on hospital B's subdomain
+  * permissions (IsTenantMember + role + plan) are re-checked on every request
 
-Token endpoint khud tenant-scoped hai: login `TenantModelBackend` se hota hai,
-jo sirf current hospital ke users ko authenticate karta hai.
+The token endpoint is itself tenant-scoped: login goes through
+`TenantModelBackend`, which authenticates only the current hospital's users.
 """
 from django.utils import timezone
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer

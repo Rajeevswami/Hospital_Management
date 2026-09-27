@@ -2,11 +2,11 @@
 Phase 2 - SaaS subscription & plan gating.
 
 Do models:
-  Plan         - platform-level catalog (tenant-scoped NAHI; saas operator manage karta hai)
-  Subscription - ek hospital ka current plan (tenant-scoped, OneToOne)
+   Plan         - platform-level catalog (NOT tenant-scoped; the SaaS operator manages it)
+  Subscription - a hospital's current plan (tenant-scoped, OneToOne)
 
-Design note: patient-facing `billing` app (Invoice/Payment) se yeh ALAG hai -
-yahan hospital khud customer hai, patient nahi.
+Design note: this is SEPARATE from the patient-facing `billing` app (Invoice/Payment) -
+here the hospital itself is the customer, not the patient.
 """
 import logging
 
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 class Feature(models.TextChoices):
     """
-    Gate karne layak cheezein. Naya feature add karna ho to yahan enum add karo
-    aur har plan ke features_json mein daalo - gating code change nahi karna padega.
+    Things that can be gated. To add a new feature, add it to this enum
+    and put it in every plan's features_json - the gating code does not change.
     """
 
     AI_NO_SHOW = "ai_no_show", "AI no-show prediction"
@@ -31,7 +31,7 @@ class Feature(models.TextChoices):
     ADVANCED_REPORTS = "advanced_reports", "Advanced reports & exports"
 
 
-# Sab features ki default value - plan ke features_json mein na ho to yeh use hoga
+# Defaults for all features - used when a plan's features_json does not list them
 DEFAULT_FEATURE_FLAGS = {
     Feature.AI_NO_SHOW: False,
     Feature.API_ACCESS: False,
@@ -41,7 +41,7 @@ DEFAULT_FEATURE_FLAGS = {
     Feature.ADVANCED_REPORTS: False,
 }
 
-# patient_limit / staff_limit ke liye "unlimited" sentinel
+# "unlimited" sentinel for patient_limit / staff_limit
 UNLIMITED = -1
 
 
@@ -52,8 +52,8 @@ class PlanManager(models.Manager):
 
 class Plan(models.Model):
     """
-    Platform catalog. Tenant-scoped nahi hai - warna naya tenant apna plan hi
-    na dekh paata. Access control admin + views se hota hai.
+    Platform catalog. Not tenant-scoped - otherwise a new tenant could not even
+    see its own plan. Access control happens in admin + views.
     """
 
     class Interval(models.TextChoices):
@@ -66,17 +66,17 @@ class Plan(models.Model):
 
     price = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
-        help_text="Per billing period, INR mein (Razorpay ko paisa mein bhejte hain)",
+        help_text="Per billing period, in INR (sent to Razorpay in paise)",
     )
     currency = models.CharField(max_length=3, default="INR")
     interval = models.CharField(max_length=10, choices=Interval.choices, default=Interval.MONTHLY)
 
     # ---------------- limits ----------------
     patient_limit = models.IntegerField(
-        default=100, help_text=f"Isse zyada patients nahi. {UNLIMITED} = unlimited"
+        default=100, help_text=f"No more patients than this. {UNLIMITED} = unlimited"
     )
     staff_limit = models.IntegerField(
-        default=5, help_text=f"Kitne staff logins. {UNLIMITED} = unlimited"
+        default=5, help_text=f"Number of staff logins. {UNLIMITED} = unlimited"
     )
     appointment_limit = models.IntegerField(
         default=UNLIMITED, help_text=f"Monthly appointments. {UNLIMITED} = unlimited"
@@ -85,18 +85,18 @@ class Plan(models.Model):
     # ---------------- feature flags ----------------
     features_json = models.JSONField(
         default=dict, blank=True,
-        help_text='{"ai_no_show": true, "api_access": false, ...}. Jo key missing '
-                  "ho uski default False maani jaati hai.",
+        help_text='{"ai_no_show": true, "api_access": false, ...}. If a key '
+                  "is missing, its default is treated as False.",
     )
 
     # ---------------- Razorpay ----------------
     razorpay_plan_id = models.CharField(
         max_length=60, blank=True,
-        help_text="Razorpay pe bana hua plan id (plan_xxx). Recurring checkout ke liye zaroori.",
+        help_text="Plan id created on Razorpay (plan_xxx). Required for recurring checkout.",
     )
     trial_days = models.PositiveIntegerField(default=0)
 
-    is_active = models.BooleanField(default=True, help_text="False = naye subscriptions band")
+    is_active = models.BooleanField(default=True, help_text="False = new subscriptions are blocked")
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -112,7 +112,7 @@ class Plan(models.Model):
     # ---------------- feature helpers ----------------
     @property
     def features(self):
-        """features_json + defaults merge karke."""
+        """Merge features_json with the defaults."""
         merged = dict(DEFAULT_FEATURE_FLAGS)
         if isinstance(self.features_json, dict):
             merged.update({k: bool(v) for k, v in self.features_json.items()})
@@ -123,7 +123,7 @@ class Plan(models.Model):
 
     @property
     def price_paise(self):
-        """Razorpay amount hamesha smallest unit (paisa) mein maangta hai."""
+        """Razorpay always requires the amount in the smallest unit (paise)."""
         return int((self.price or 0) * 100)
 
     def is_unlimited_patients(self):
@@ -133,7 +133,7 @@ class Plan(models.Model):
         from django.core.exceptions import ValidationError
 
         if self.price < 0:
-            raise ValidationError({"price": "Price negative nahi ho sakta."})
+            raise ValidationError({"price": "Price cannot be negative."})
         unknown = set(self.features_json or {}) - {f.value for f in Feature}
         if unknown:
             raise ValidationError({
@@ -144,7 +144,7 @@ class Plan(models.Model):
 
 class SubscriptionQuerySet(models.QuerySet):
     def usable(self):
-        """Jo abhi access deti hain (active/trialing/past_due grace, expire nahi hui)."""
+        """Plans that currently grant access (active/trialing/past_due grace, not expired)."""
         return self.filter(status__in=Subscription.ACCESSIBLE_STATUSES)
 
 
@@ -154,20 +154,20 @@ class SubscriptionManager(models.Manager):
 
 
 class Subscription(models.Model):
-    """Ek hospital ki subscription. OneToOne - ek waqt pe ek hi active plan."""
+    """A hospital's subscription. OneToOne - one active plan at a time."""
 
     class Status(models.TextChoices):
         TRIALING = "TRIALING", "Trialing"
         ACTIVE = "ACTIVE", "Active"
         PAST_DUE = "PAST_DUE", "Past due"
-        PENDING = "PENDING", "Pending"        # Razorpay subscription bana, payment abhi nahi
+        PENDING = "PENDING", "Pending"        # Razorpay subscription created, payment not yet
         CANCELLED = "CANCELLED", "Cancelled"
         EXPIRED = "EXPIRED", "Expired"
-        HALTED = "HALTED", "Halted"          # Razorpay: payment failures ke baad rok diya
+        HALTED = "HALTED", "Halted"          # Razorpay: stopped after payment failures
 
-    # Kaunse statuses mein app access milta hai.
-    # PAST_DUE ko grace mein rakha hai - payment fail hote hi hospital ka kaam
-    # band kar dena production hospital ke liye bahut harsh hai.
+    # Statuses that grant app access.
+    # PAST_DUE is kept in grace - cutting a hospital's work off the moment a
+    # payment fails is very harsh for a production hospital.
     ACCESSIBLE_STATUSES = (
         Status.TRIALING, Status.ACTIVE, Status.PAST_DUE, Status.PENDING,
     )
@@ -175,7 +175,7 @@ class Subscription(models.Model):
     hospital = models.OneToOneField(
         "tenants.Hospital", on_delete=models.CASCADE, related_name="subscription",
         null=True, blank=True,
-        help_text="NULL = platform-level / unassigned (tenant backfill ke liye)",
+        help_text="NULL = platform-level / unassigned (for the tenant backfill)",
     )
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="subscriptions")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
@@ -199,7 +199,7 @@ class Subscription(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     objects = SubscriptionManager()
-    # Tenant manager se bachne ke liye (yeh OneToOne nullable hai):
+    # To escape the tenant manager (this OneToOne is nullable):
     all_objects = models.Manager()
 
     class Meta:
@@ -212,10 +212,10 @@ class Subscription(models.Model):
     # ---------------- status helpers ----------------
     @property
     def is_accessible(self):
-        """Kya hospital ko abhi app use karne ka access milna chahiye?"""
+        """Should the hospital currently have access to the app?"""
         if self.status not in self.ACCESSIBLE_STATUSES:
             return False
-        # Period khatam ho gaya ho to EXPIRED maano (DB status stale ho sakta hai)
+        # If the period is over, treat it as EXPIRED (the DB status may be stale)
         if self.current_period_end and self.current_period_end < timezone.now():
             return self.status == self.Status.PAST_DUE and self._within_grace()
         return True
@@ -242,7 +242,7 @@ class Subscription(models.Model):
     # ---------------- lookups ----------------
     @classmethod
     def for_hospital(cls, hospital):
-        """Hospital ki subscription, ya None. Kabhi exception nahi."""
+        """The hospital's subscription, or None. Never raises."""
         if hospital is None:
             return None
         return cls.all_objects.filter(hospital=hospital).first()
@@ -268,9 +268,10 @@ class Subscription(models.Model):
 
 class PaymentEvent(models.Model):
     """
-    Razorpay webhook ka audit trail. Signature verify hone ke BAAD hi likha jaata
-    hai, isliye "payment hua tha ya nahi" ka jhagda ho to yahan se pata chalega.
-    Duplicate deliveries ko ignore karne ke liye event_id unique hai.
+    Audit trail for Razorpay webhooks. Written only AFTER the signature
+    verifies, so if there is ever a dispute over "did the payment happen or
+    not", it can be answered from here. event_id is unique to ignore duplicate
+    deliveries.
     """
 
     event_id = models.CharField(max_length=80, unique=True, db_index=True)

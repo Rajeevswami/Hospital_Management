@@ -1,13 +1,13 @@
 """
 Phase 4 - REST API tests (DRF + JWT + Swagger + tenant isolation).
 
-Har test real HTTP request bhejta hai (Django test client), isliye middleware,
-JWT auth, permissions, serializers - sab actually chalta hai.
+Every test sends a real HTTP request (Django test client), so middleware,
+JWT auth, permissions, serializers - everything actually runs.
 
-NOTE: test client ko hamesha `HTTP_HOST="<slug>.testserver"` do. Full URL
-("http://acme.testserver/...") dene se Django ka client default HTTP_HOST
-"testserver" bhejta hai aur subdomain resolve nahi hota (yeh client ka quirk hai,
-production mein aisa nahi hota).
+NOTE: always pass `HTTP_HOST="<slug>.testserver"` to the test client. A full URL
+("http://acme.testserver/...") makes the Django client send the default HTTP_HOST
+sends "testserver" and the subdomain does not resolve (this is a client quirk,
+it does not happen in production).
 """
 import datetime as dt
 
@@ -59,7 +59,7 @@ def subscribe(hospital, plan, days=30):
 
 @pytest.fixture
 def api_setup(hospital_a, hospital_b, api_plan, make_user):
-    """Do hospitals, dono pe Scale plan, staff + data."""
+    """Two hospitals, both on the Scale plan, with staff + data."""
     subscribe(hospital_a, api_plan)
     subscribe(hospital_b, api_plan)
 
@@ -83,7 +83,7 @@ def api_setup(hospital_a, hospital_b, api_plan, make_user):
             reason="Fever", hospital=hospital_a)
 
     with tenant_scope(hospital_b):
-        # JAAN-BOOJH ke same username + same password: yahi asli cross-tenant leak hota
+        # DELIBERATELY the same username + same password: this is exactly how a real cross-tenant leak would happen
         users["admin_b"] = make_user(hospital_b, username="api.admin",
                                      role=User.Role.ADMIN, password=PASSWORD)
         users["patient_b"] = Patient.objects.create(
@@ -127,8 +127,8 @@ class TestJwtAuth:
 
     def test_same_username_in_other_hospital_gets_its_own_token(self, client, api_setup):
         """
-        Dono hospitals mein 'api.admin' hai. A ke subdomain pe login karne wala
-        A ka admin hona chahiye, B ka nahi.
+        Both hospitals have 'api.admin'. Whoever logs in on A's subdomain
+        must be A's admin, not B's.
         """
         resp = client.post("/api/token/", {"username": "api.admin", "password": PASSWORD},
                            HTTP_HOST=HOST_B)
@@ -143,7 +143,7 @@ class TestJwtAuth:
         assert resp.json()["username"] == "api.admin"
 
     def test_token_of_other_hospital_rejected(self, client, api_setup):
-        """A ka token B ke subdomain pe -> 401 (JWT user lookup tenant-scoped hai)."""
+        """A's token on B's subdomain -> 401 (the JWT user lookup is tenant-scoped)."""
         token = get_token(client, HOST_A, "api.admin")
         resp = client.get("/api/me/", HTTP_HOST=HOST_B, **auth(token))
         assert resp.status_code == 401
@@ -166,7 +166,7 @@ class TestJwtAuth:
         assert resp.status_code == 401
 
     def test_token_without_tenant_gives_401_json(self, client, api_setup):
-        """Root domain (koi subdomain nahi) pe API call -> saaf JSON 401, HTML redirect nahi."""
+        """API call on the root domain (no subdomain) -> clean JSON 401, not an HTML redirect."""
         resp = client.post("/api/token/", {"username": "api.admin", "password": PASSWORD})
         assert resp.status_code == 401
         assert resp["Content-Type"].startswith("application/json")
@@ -181,10 +181,10 @@ class TestTenantIsolation:
         assert resp.status_code == 200
         names = [p["first_name"] for p in resp.json()["results"]]
         assert "Asha" in names
-        assert "Bhola" not in names       # hospital B ka patient leak nahi hua
+        assert "Bhola" not in names       # hospital B's patient did not leak
 
     def test_other_hospital_patient_detail_404(self, client, api_setup):
-        """B ka patient id A ke API pe maanga -> 404 (existence bhi pata na chale)."""
+        """B's patient id requested on A's API -> 404 (not even the existence is revealed)."""
         token = get_token(client, HOST_A, "api.admin")
         resp = client.get(f"/api/patients/{api_setup['patient_b'].pk}/",
                           HTTP_HOST=HOST_A, **auth(token))
@@ -212,10 +212,10 @@ class TestTenantIsolation:
         assert resp.status_code == 201, resp.content
         with tenant_scope(api_setup["hospital_a"]):
             created = Patient.objects.get(first_name="Spoof")
-        assert created.hospital_id == api_setup["hospital_a"].pk   # A hi raha
+        assert created.hospital_id == api_setup["hospital_a"].pk   # it stayed in A
 
     def test_x_hospital_slug_header_resolves_tenant(self, client, api_setup):
-        """Subdomain ke bina header se tenant (localhost/Postman/mobile ke liye)."""
+        """Tenant via header without a subdomain (for localhost/Postman/mobile)."""
         token = get_token(client, HOST_A, "api.admin")
         resp = client.get("/api/patients/", HTTP_X_HOSPITAL_SLUG="acme", **auth(token))
         assert resp.status_code == 200
@@ -223,11 +223,11 @@ class TestTenantIsolation:
 
     def test_x_hospital_slug_cannot_switch_tenant(self, client, api_setup):
         """
-        A ka user header se B ka tenant maange -> request ruk jaani chahiye.
+        A's user asking for B's tenant via the header -> the request must be stopped.
 
-        401 isliye (403 nahi): JWT user lookup khud tenant-scoped manager se hota
-        hai, to B ke tenant mein A ka user milta hi nahi -> authentication fail.
-        Data leak dono case mein nahi hota.
+        401 (not 403) because: the JWT user lookup itself goes through the
+        tenant-scoped manager, so A's user is simply not found in B's tenant ->
+        authentication fails. In neither case does data leak.
         """
         token = get_token(client, HOST_A, "api.admin")
         resp = client.get("/api/patients/", HTTP_X_HOSPITAL_SLUG="beta-city", **auth(token))
@@ -252,12 +252,12 @@ class TestRbac:
     def test_receptionist_can_create_patient(self, client, api_setup):
         token = get_token(client, HOST_A, "api.recep")
         resp = client.post("/api/patients/",
-                           {"first_name": "Naya", "last_name": "Patient",
+                           {"first_name": "New", "last_name": "Patient",
                             "date_of_birth": "1995-05-05", "gender": "M",
                             "phone": "9811100011"},
                            content_type="application/json", HTTP_HOST=HOST_A, **auth(token))
         assert resp.status_code == 201, resp.content
-        assert resp.json()["patient_id"]          # per-hospital ID bana
+        assert resp.json()["patient_id"]          # a per-hospital ID was created
 
     def test_patient_update_allowed_for_receptionist(self, client, api_setup):
         token = get_token(client, HOST_A, "api.recep")
@@ -315,7 +315,7 @@ class TestPlanGating:
         assert body["feature"] == Feature.API_ACCESS
 
     def test_token_still_issued_without_api_access(self, client, hospital_a, free_plan, make_user):
-        """Token milna chahiye - warna client ko pata hi na chale ki API hai."""
+        """A token must be issued - otherwise a client would not even discover the API."""
         make_user(hospital_a, username="free.admin2", role=User.Role.ADMIN, password=PASSWORD)
         subscribe(hospital_a, free_plan)
         resp = client.post("/api/token/", {"username": "free.admin2", "password": PASSWORD},
@@ -400,7 +400,7 @@ class TestResources:
         token = get_token(client, HOST_A, "api.admin")
         resp = client.get("/api/risks/high/", HTTP_HOST=HOST_A, **auth(token))
         assert resp.status_code == 200
-        assert resp.json()          # kam se kam ek row
+        assert resp.json()          # at least one row
 
     def test_patient_nested_appointments(self, client, api_setup):
         token = get_token(client, HOST_A, "api.admin")
@@ -492,10 +492,10 @@ class TestDocs:
         schemes = schema["components"]["securitySchemes"]
         bearer = [s for s in schemes.values()
                   if s.get("type") == "http" and s.get("scheme") == "bearer"]
-        assert bearer, f"JWT bearer scheme documented nahi hai: {schemes}"
+        assert bearer, f"the JWT bearer scheme is not documented: {schemes}"
 
     def test_spectacular_management_command_validates(self, tmp_path):
-        """drf-spectacular ka apna validator - schema OpenAPI-spec valid hai."""
+        """drf-spectacular's own validator - the schema is OpenAPI-spec valid."""
         from django.core.management import call_command
 
         out = tmp_path / "schema.yml"

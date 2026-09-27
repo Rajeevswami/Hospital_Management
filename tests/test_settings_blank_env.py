@@ -1,15 +1,15 @@
-"""`.env.example` ke blank values settings ko todne na paayein.
+"""Blank `.env.example` values must not break the settings.
 
-`.env.example` copy karke `.env` banane par kuch keys KHAALI aati hain
-(`DATABASE_URL=`, `ALLOWED_HOSTS=`). python-decouple ko key mil jaati hai, isliye
-wo `config(...)` ka `default=` use NAHI karta - empty string deta hai. Isse pehle:
+When you copy `.env.example` to `.env`, some keys come EMPTY
+(`DATABASE_URL=`, `ALLOWED_HOSTS=`). python-decouple finds the key, so it does
+NOT use `config(...)`'s `default=` - it returns an empty string. Before this was fixed:
 
 * `dj_database_url.parse('')` -> UnknownSchemeError: Scheme '://'  (app crash)
-* `Csv()('')` -> [] -> `127.0.0.1` ALLOWED_HOSTS se gayab (http://127.0.0.1:8000 -> 400)
+* `Csv()('')` -> [] -> `127.0.0.1` disappears from ALLOWED_HOSTS (http://127.0.0.1:8000 -> 400)
 
-Settings module-level code hai (import par hi chal jaata hai), isliye is test mein
-asli `hospital_system/settings.py` ko ek fresh subprocess mein blank env ke saath
-import kiya jaata hai - yahi fresh checkout wala code path hai.
+Settings is module-level code (it runs at import), so this test imports the
+real `hospital_system/settings.py` in a fresh subprocess with a blank env -
+this is exactly the fresh-checkout code path.
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Yeh snippet settings ko import karke sirf do cheezein print karta hai.
-# DJANGO_SETTINGS_MODULE set hone se django.conf.settings yahin se populate hota hai.
+# This snippet imports settings and prints just two things.
+# With DJANGO_SETTINGS_MODULE set, django.conf.settings is populated from here.
 _PROBE = """
 import json
 from django.conf import settings
@@ -36,7 +36,7 @@ print(json.dumps({
 
 
 def _load_settings_with_env(**overrides) -> dict:
-    """Asli settings module ko fresh process mein load karo, diye gaye env ke saath."""
+    """Load the real settings module in a fresh process with the given env."""
     env = dict(os.environ)
     env.pop("DATABASE_URL", None)
     env.pop("ALLOWED_HOSTS", None)
@@ -52,7 +52,7 @@ def _load_settings_with_env(**overrides) -> dict:
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"settings import fail hua (rc={result.returncode}):\n"
+        f"settings import failed (rc={result.returncode}):\n"
         f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
     line = [ln for ln in result.stdout.splitlines() if ln.strip().startswith("{")][-1]
@@ -60,30 +60,30 @@ def _load_settings_with_env(**overrides) -> dict:
 
 
 class TestBlankEnvValues:
-    """`.env.example` -> `cp` -> blank keys: app phir bhi chalna chahiye."""
+    """`.env.example` -> `cp` -> blank keys: the app must still run."""
 
     def test_blank_database_url_falls_back_to_sqlite(self):
-        """`DATABASE_URL=` (khaali) -> SQLite, crash nahi."""
+        """`DATABASE_URL=` (empty) -> SQLite, no crash."""
         loaded = _load_settings_with_env(DATABASE_URL="")
         assert loaded["engine"] == "django.db.backends.sqlite3", loaded
         assert str(BASE_DIR / "db.sqlite3") in loaded["name"], loaded
 
     def test_blank_allowed_hosts_keeps_localhost_and_127(self):
-        """`ALLOWED_HOSTS=` (khaali) -> default hosts gayab na ho."""
+        """`ALLOWED_HOSTS=` (empty) -> the default hosts must not disappear."""
         loaded = _load_settings_with_env(ALLOWED_HOSTS="")
         hosts = loaded["allowed_hosts"]
         assert "127.0.0.1" in hosts, hosts
         assert "localhost" in hosts, hosts
-        # SAAS_ROOT_DOMAIN se wildcard bhi banta hai
+        # the wildcard from SAAS_ROOT_DOMAIN is also created
         assert ".testserver" in hosts or ".localhost" in hosts, hosts
 
-    def test_whitespace_only_values_bhi_tolerate_hote_hain(self):
+    def test_whitespace_only_values_are_tolerated(self):
         loaded = _load_settings_with_env(DATABASE_URL="   ", ALLOWED_HOSTS="  ")
         assert loaded["engine"] == "django.db.backends.sqlite3", loaded
         assert "127.0.0.1" in loaded["allowed_hosts"], loaded
 
     def test_explicit_postgres_url_still_wins(self):
-        """Blank-tolerance real config ko override na kare."""
+        """Blank-tolerance must not override the real config."""
         loaded = _load_settings_with_env(
             DATABASE_URL="postgres://u:p@db-host:5432/mydb",
             ALLOWED_HOSTS="app.example.com",

@@ -12,9 +12,9 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard:home')
 
-    # TenantMiddleware ne request.hospital set kiya hai (subdomain ya session se),
-    # aur tenants.backends.TenantModelBackend authenticate() ko usi hospital tak
-    # limit karta hai - doosre hospital ka login yahan se pass nahi hoga.
+    # TenantMiddleware has set request.hospital (from the subdomain or session),
+    # and tenants.backends.TenantModelBackend limits authenticate() to that
+    # hospital - another hospital's login will not get through here.
     form = LoginForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
         user = authenticate(
@@ -41,7 +41,7 @@ def logout_view(request):
 @login_required
 @role_required('ADMIN')
 def staff_list(request):
-    # User.objects tenant-scoped hai -> sirf isi hospital ka staff dikhega
+    # User.objects is tenant-scoped -> only this hospital's staff is visible
     staff = User.objects.exclude(role='ADMIN').order_by('role', 'first_name')
     return render(request, 'accounts/staff_list.html', {
         'staff': staff,
@@ -52,13 +52,13 @@ def staff_list(request):
 @login_required
 @role_required('ADMIN')
 def staff_create(request):
-    # Phase 2: plan ka staff_limit check
+    # Phase 2: the plan's staff_limit check
     allowed, reason, limit = check_limit(request, 'staff_limit', User.objects.count())
     if not allowed:
         if reason == 'limit_reached':
-            messages.error(request, f'Aapke plan mein {limit} staff logins allowed hain. Plan upgrade karo.')
+            messages.error(request, f'Your plan allows {limit} staff logins. Please upgrade your plan.')
         else:
-            messages.error(request, 'Staff banane ke liye active subscription zaroori hai.')
+            messages.error(request, 'An active subscription is required to create staff.')
         return redirect('subscriptions:billing')
 
     form = StaffCreationForm(request.POST or None)

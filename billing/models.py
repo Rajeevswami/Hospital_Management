@@ -12,7 +12,7 @@ class Invoice(TenantModel):
         PAID = 'PAID', 'Paid'
         CANCELLED = 'CANCELLED', 'Cancelled'
 
-    # MULTI-TENANT: per-hospital unique (pehle globally unique tha)
+    # MULTI-TENANT: unique per-hospital (it used to be globally unique)
     invoice_number = models.CharField(max_length=20, editable=False, db_index=True)
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name='invoices')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

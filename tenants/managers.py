@@ -1,19 +1,19 @@
 """
 Tenant-scoped manager/queryset.
 
-Har business model isko use karta hai:
+Every business model uses it:
 
     class Patient(TenantModel):
         ...
 
-Iska matlab:
-    Patient.objects.all()      -> sirf current hospital ke patients
-    Patient.all_objects.all()  -> sab hospitals (sirf platform-level code ke liye)
+This means:
+    Patient.objects.all()      -> only the current hospital's patients
+    Patient.all_objects.all()  -> all hospitals (for platform-level code only)
 
-Do safety rails:
-  * Tenant context set nahi hai -> ImproperlyConfigured (silent empty result nahi).
-  * Naya record bina hospital ke save hua -> hospital khud assign ho jaata hai,
-    warna clear error.
+Two safety rails:
+  * No tenant context set -> ImproperlyConfigured (not a silent empty result).
+  * A new record saved without a hospital -> the hospital is assigned
+    automatically, otherwise a clear error.
 """
 from django.apps import apps
 from django.db import models
@@ -23,20 +23,22 @@ from . import context
 
 def _tenant_enforcement_active():
     """
-    Tenant scoping kab LAAGU hogi:
-      * app registry ready ho (warna hum abhi import phase mein hain), AUR
-      * ek HTTP request chal rahi ho (TenantMiddleware ne flag set kiya ho)
+    When tenant scoping APPLIES:
+      * the app registry is ready (otherwise we are still in the import phase),
+        AND
+      * an HTTP request is running (TenantMiddleware set the flag)
 
-    Import-time pe ModelForm ki metaclass FK ka default manager evaluate karti
-    hai - us waqt enforcement OFF rehti hai warna app start hi nahi hota.
-    Request-time pe ON: bina tenant ke query = loud error, chup-chaap leak nahi.
+    At import time, ModelForm's metaclass evaluates the FK's default manager -
+    enforcement stays OFF then, otherwise the app would not even start.
+    At request time it is ON: a query without a tenant = loud error, never a
+    quiet leak.
     """
     return apps.ready and context.is_request_active()
 
 
 class TenantQuerySet(models.QuerySet):
     def for_tenant(self):
-        """Explicit tenant scoping - middleware/views mein clear intent ke liye."""
+        """Explicit tenant scoping - for a clear intent in middleware/views."""
         if not _tenant_enforcement_active():
             return self  # import-time / management command / shell / tests
         hospital = context.require_current_hospital(self.model.__name__)
@@ -46,30 +48,31 @@ class TenantQuerySet(models.QuerySet):
 
 
 class TenantManager(models.Manager):
-    """Default manager - hamesha current tenant tak scoped."""
+    """Default manager - always scoped to the current tenant."""
 
     def get_queryset(self):
         return TenantQuerySet(self.model, using=self._db).for_tenant()
 
     def for_hospital(self, hospital):
-        """Kisi specific hospital ka data (tenant context ki zaroorat nahi)."""
+        """Data of a specific hospital (no tenant context needed)."""
         return TenantQuerySet(self.model, using=self._db).filter(hospital=hospital)
 
     def cross_tenant(self):
-        """Sab hospitals - platform admin / global reports ke liye."""
+        """All hospitals - for platform admin / global reports."""
         return TenantQuerySet(self.model, using=self._db)
 
-    # Django ke internals (session auth, dumpdata, natural keys) default manager se
-    # yeh method maangte hain. Username globally unique nahi raha, isliye pehla
-    # match lete hain - tenant ka asli faisla auth backend (get_user) karta hai.
+    # Django's internals (session auth, dumpdata, natural keys) request this
+    # method from the default manager. Usernames are no longer globally unique,
+    # so we take the first match - the real tenant decision is made by the auth
+    # backend (get_user).
     def get_by_natural_key(self, username):
         return self.model.all_objects.filter(**{self.model.USERNAME_FIELD: username}).first()
 
 
 class UnscopedManager(models.Manager):
     """
-    Escape hatch: `Model.all_objects` - koi tenant filter nahi.
-    Sirf admin, platform tooling aur tests mein use karo.
+    Escape hatch: `Model.all_objects` - no tenant filter.
+    Use only in admin, platform tooling and tests.
     """
 
     def get_queryset(self):

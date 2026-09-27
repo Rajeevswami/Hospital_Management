@@ -55,7 +55,7 @@ class TestPlan:
     def test_features_merge_with_defaults(self, free_plan, scale_plan):
         assert free_plan.has_feature(Feature.AI_NO_SHOW) is False
         assert scale_plan.has_feature(Feature.AI_NO_SHOW) is True
-        # jo key features_json mein nahi, uski default False
+        # keys not in features_json default to False
         assert free_plan.features[Feature.SMS_REMINDERS] is False
 
     def test_unlimited_sentinel(self, scale_plan, free_plan):
@@ -92,7 +92,7 @@ class TestSubscriptionAccess:
 
     def test_past_due_gets_grace_period(self, hospital_a, scale_plan):
         sub = make_sub(hospital_a, scale_plan, status=Subscription.Status.PAST_DUE, days=-1)
-        # period_end kal gaya, par grace (default 3 din) ke andar hai
+        # period_end passed yesterday, but within the grace (default 3 days)
         assert sub.is_accessible is True
 
     def test_past_due_beyond_grace_is_blocked(self, hospital_a, scale_plan):
@@ -196,7 +196,7 @@ class TestGatedViews:
         with tenant_scope(hospital_a):
             client.force_login(admin)
             resp = client.post("/patients/add/", {
-                "first_name": "Naya", "last_name": "Patient",
+                "first_name": "New", "last_name": "Patient",
                 "date_of_birth": "1990-01-01", "gender": "M",
                 "blood_group": "UNK", "phone": "9000000777",
                 "address": "", "emergency_contact_name": "",
@@ -233,7 +233,7 @@ class TestGatedViews:
     def test_billing_page_visible_only_to_own_tenant(
         self, client, hospital_a, hospital_b, scale_plan, make_user
     ):
-        """Hospital A ka plan Hospital B ke billing page pe current nahi dikhega."""
+        """Hospital A's plan must not appear as current on Hospital B's billing page."""
         admin_b = make_user(hospital_b, username="admb", role=User.Role.ADMIN)
         make_sub(hospital_a, scale_plan)
         with tenant_scope(hospital_b):
@@ -382,7 +382,7 @@ class TestWebhookEndpoint:
         assert first.status_code == 200
         assert second.status_code == 200
         sub.refresh_from_db()
-        assert sub.failure_count == 1          # dobara count nahi badha
+        assert sub.failure_count == 1          # the count did not increase again
         assert PaymentEvent.objects.filter(event_id="ev_dup").count() == 1
 
     @override_settings(**TEST_KEYS)
@@ -407,7 +407,7 @@ class TestWebhookEndpoint:
         assert resp.status_code == 404
 
     def test_webhook_is_reachable_without_tenant(self, client, settings):
-        """Webhook TENANT_EXEMPT hai - root domain pe bhi 400 aana chahiye, 302 nahi."""
+        """The webhook is TENANT_EXEMPT - even on the root domain it should be 400, not 302."""
         settings.RAZORPAY_WEBHOOK_SECRET = "s"
         resp = client.post("/saas/webhook/", data=b"{}", content_type="application/json")
         assert resp.status_code == 400
@@ -454,4 +454,4 @@ class TestManagementCommands:
         from django.core.management import call_command
         settings.RAZORPAY_KEY_ID = ""
         settings.RAZORPAY_KEY_SECRET = ""
-        call_command("sync_subscriptions", verbosity=0)   # exception nahi aani chahiye
+        call_command("sync_subscriptions", verbosity=0)   # no exception should occur

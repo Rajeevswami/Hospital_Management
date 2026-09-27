@@ -2,27 +2,28 @@
 ###############################################################################
 # PostgreSQL backup + restore helper (Phase 0 - safety net)
 #
-# Kya badla (purane script se):
-#   * DB credentials ab HARDCODED nahi - .env / environment se aate hain
-#     (DATABASE_URL, ya PG* vars). Render pe DATABASE_URL pehle se set hota hai.
-#   * Backup custom format (-Fc) mein hota hai -> selective/parallel restore
-#     possible, aur dump ki integrity verify hoti hai.
-#   * `restore` mode add hua, taaki migration se pehle liya gaya backup
-#     ek hi command se wapas lag jaye.
+# What changed (vs the old script):
+#   * DB credentials are no longer HARDCODED - they come from .env / the
+#     environment (DATABASE_URL, or PG* vars). On Render, DATABASE_URL is
+#     already set.
+#   * Backups use the custom format (-Fc) -> selective/parallel restore is
+#     possible, and the dump's integrity is verified.
+#   * A `restore` mode was added, so a backup taken before a migration can be
+#     reapplied with a single command.
 #
 # USAGE
-#   ./deploy/backup_db.sh                  # backup lo (purane wale 14 din baad delete)
-#   ./deploy/backup_db.sh --tag pre-saas   # tag ke saath backup (auto-delete se safe)
+#   ./deploy/backup_db.sh                  # take a backup (auto-delete after 14 days)
+#   ./deploy/backup_db.sh --tag pre-saas   # tagged backup (safe from auto-delete)
 #   BACKUP_DIR=/mnt/usb ./deploy/backup_db.sh
-#   ./deploy/backup_db.sh restore <file>   # restore (confirm maangega)
-#   ./deploy/backup_db.sh list             # available backups dikhao
+#   ./deploy/backup_db.sh restore <file>   # restore (asks for confirmation)
+#   ./deploy/backup_db.sh list             # show available backups
 #
-# CRON (VPS, roz raat 2 baje, 14 din retention):
+# CRON (VPS, nightly at 2 AM, 14-day retention):
 #   0 2 * * * cd /var/www/hospital_system && ./deploy/backup_db.sh >> /var/log/hospital_system/backup.log 2>&1
 #
-# RENDER pe manual backup:
-#   Render Dashboard > PostgreSQL > Manual Backup (snapshot), ya
-#   render shell / ssh ke andar DATABASE_URL set karke yehi script chalao.
+# Manual backup ON RENDER:
+#   Render Dashboard > PostgreSQL > Manual Backup (snapshot), or
+#   run this same script inside render shell / ssh with DATABASE_URL set.
 ###############################################################################
 set -euo pipefail
 
@@ -45,21 +46,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# ---------------- .env load (agar DATABASE_URL env mein nahi hai) ----------------
+# ---------------- .env load (if DATABASE_URL is not already in the env) ----------------
 if [ -z "${DATABASE_URL:-}" ] && [ -f .env ]; then
-  # sirf DATABASE_URL line uthao, baaki secrets export mat karo
-  DATABASE_URL="$(grep -E '^DATABASE_URL=' .env | tail -n1 | cut -d= -f2- | tr -d '\"' || true)"
+  # pick up only the DATABASE_URL line; do not export the other secrets
+  DATABASE_URL="$(grep -E '^DATABASE_URL=' .env | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
   export DATABASE_URL
 fi
 
 if [ -z "${DATABASE_URL:-}" ]; then
-  echo "ERROR: DATABASE_URL set nahi hai (env ya .env mein)." >&2
+  echo "ERROR: DATABASE_URL is not set (in env or .env)." >&2
   echo "       e.g. export DATABASE_URL='postgres://USER:<PASSWORD>@HOST:5432/DBNAME'" >&2
   exit 1
 fi
 
 for bin in pg_dump psql; do
-  command -v "$bin" >/dev/null 2>&1 || { echo "ERROR: '$bin' install nahi hai." >&2; exit 1; }
+  command -v "$bin" >/dev/null 2>&1 || { echo "ERROR: '$bin' is not installed." >&2; exit 1; }
 done
 
 run_sql() { psql "$DATABASE_URL" -tAc "$1"; }
@@ -74,8 +75,8 @@ fi
 # ---------------- RESTORE ----------------
 if [ "$MODE" = "restore" ]; then
   [ -n "${DUMP_FILE:-}" ] || { echo "Usage: $0 restore <dump-file>" >&2; exit 2; }
-  [ -f "$DUMP_FILE" ] || { echo "ERROR: file nahi mili: $DUMP_FILE" >&2; exit 1; }
-  echo "WARNING: '$DUMP_FILE' se database $(echo "$DATABASE_URL" | sed -E 's#://([^:]+):[^@]+@#://\1:***@#') OVERWRITE hoga."
+  [ -f "$DUMP_FILE" ] || { echo "ERROR: file not found: $DUMP_FILE" >&2; exit 1; }
+  echo "WARNING: the database $(echo "$DATABASE_URL" | sed -E 's#://([^:]+):[^@]+@#://\1:***@#') will be OVERWRITTEN from '$DUMP_FILE'."
   printf "Type 'RESTORE' to continue: "
   read -r CONFIRM
   [ "$CONFIRM" = "RESTORE" ] || { echo "Cancelled."; exit 1; }
@@ -100,19 +101,19 @@ fi
 # -Fc = custom format (compressed, verifiable, selective restore)
 pg_dump --dbname="$DATABASE_URL" --format=custom --no-owner --file="$OUT"
 
-# Integrity check: dump readable hai ya nahi (tuta hua backup sabse bura backup hai)
+# Integrity check: is the dump readable? (a broken backup is the worst backup)
 TABLE_COUNT="$(pg_restore --list "$OUT" | grep -c 'TABLE DATA' || true)"
 FILE_SIZE="$(du -h "$OUT" | cut -f1)"
 echo "[$(date)] OK -> $OUT ($FILE_SIZE, $TABLE_COUNT tables with data)"
 
-# ---------------- RETENTION (tagged backups kabhi auto-delete nahi hote) ----------------
+# ---------------- RETENTION (tagged backups are never auto-deleted) ----------------
 if [ -z "$TAG" ]; then
   find "$BACKUP_DIR" -maxdepth 1 -name "hospital_db_2*.dump" -mtime +"$RETENTION_DAYS" -print -delete \
     | sed 's/^/  pruned: /' || true
   find "$BACKUP_DIR" -maxdepth 1 -name "hospital_db_2*.sql.gz" -mtime +"$RETENTION_DAYS" -print -delete \
     | sed 's/^/  pruned (legacy): /' || true
 else
-  echo "  tagged backup '$TAG' retention se exempt hai (manually delete karna)."
+  echo "  tagged backup '$TAG' is exempt from retention (delete it manually)."
 fi
 
 echo "[$(date)] Backup completed."

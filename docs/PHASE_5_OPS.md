@@ -1,50 +1,52 @@
 # Phase 5 — Tests, Sentry, Docker, CI/CD
 
-Is phase ka scope: pytest suite + coverage gate, ek specific cross-tenant isolation test,
-Sentry, Dockerfile + docker-compose (web/postgres/redis/celery), aur GitHub Actions CI/CD.
+Scope of this phase: pytest suite + coverage gate, one specific cross-tenant
+isolation test, Sentry, Dockerfile + docker-compose (web/postgres/redis/celery),
+and GitHub Actions CI/CD.
 
 ---
 
 ## 1. Test suite
 
-| Suite | Tests | Kya cover karta hai |
+| Suite | Tests | What it covers |
 |---|---|---|
-| `tests/test_tenant_isolation.py` | 16 | **cross-tenant isolation** (neeche detail) |
+| `tests/test_tenant_isolation.py` | 16 | **cross-tenant isolation** (details below) |
 | `tests/test_core_flows.py` | 12 | booking, billing + PDF, RBAC, staff/doctor create form |
-| `tests/test_data_backfill.py` | 8 | purana data → "Default Hospital" (migration rewind ke saath) |
+| `tests/test_data_backfill.py` | 8 | old data → "Default Hospital" (with migration rewind) |
 | `tests/test_subscriptions.py` | 45 | plans, Razorpay webhook, feature gating |
 | `tests/test_no_show.py` | 35 | rules, features/leakage, Celery, training, commands |
 | `tests/test_api.py` | 46 | JWT, RBAC, tenant isolation, 402 gating, Swagger |
-| `tests/test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) crash na karein |
+| `tests/test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) do not crash |
 | **Total** | **166** | **coverage 84%** (gate 70%) |
 
-Chalane ka tareeka:
+How to run:
 
 ```bash
-pytest                                              # sab
-pytest --cov=. --cov-fail-under=70                  # CI wala gate
-pytest tests/test_tenant_isolation.py -v            # sirf isolation
+pytest                                              # everything
+pytest --cov=. --cov-fail-under=70                  # the CI gate
+pytest tests/test_tenant_isolation.py -v            # isolation only
 ```
 
-Config: `pytest.ini` (repo root) + `tests/settings_test.py` (WhiteNoise manifest storage
-off, Celery eager, temp `ML_MODEL_DIR`, chhota `ML_MIN_TRAINING_ROWS`).
+Config: `pytest.ini` (repo root) + `tests/settings_test.py` (WhiteNoise manifest
+storage off, Celery eager, temp `ML_MODEL_DIR`, small `ML_MIN_TRAINING_ROWS`).
 
 ### Cross-tenant isolation test (specific requirement)
 
-`tests/test_tenant_isolation.py` — do hospitals (`acme`, `beta-city`), har level pe check:
+`tests/test_tenant_isolation.py` — two hospitals (`acme`, `beta-city`), checked
+at every level:
 
-| Level | Kya assert hota hai |
+| Level | What is asserted |
 |---|---|
-| **ORM** | `Patient.objects.all()` A ke context mein B ka row nahi deta; bina tenant ke query `ImproperlyConfigured` deta hai (silent empty nahi) |
-| **Login** | B ka user A ke subdomain pe login nahi kar sakta (same username hone par bhi) |
-| **Detail view** | B ka patient pk A ke view pe → 404 (existence bhi pata na chale) |
-| **Forms** | A ke form ke dropdown mein B ke patients/doctors nahi aate |
-| **Middleware** | A ka user B ke subdomain pe → 403 |
-| **ID sequences** | dono hospitals ka `PAT-2026-0001` alag-alag chalega, collide nahi |
-| **API** | A ka JWT B ke subdomain pe → 401; `X-Hospital-Slug` se tenant switch → blocked |
+| **ORM** | `Patient.objects.all()` in A's context does not return B's rows; querying without a tenant raises `ImproperlyConfigured` (not a silent empty result) |
+| **Login** | B's user cannot log in on A's subdomain (even with the same username) |
+| **Detail view** | B's patient pk on A's view → 404 (even the existence is not revealed) |
+| **Forms** | A's form dropdowns do not list B's patients/doctors |
+| **Middleware** | A's user on B's subdomain → 403 |
+| **ID sequences** | each hospital runs its own `PAT-2026-0001` sequence; they do not collide |
+| **API** | A's JWT on B's subdomain → 401; tenant switch via `X-Hospital-Slug` → blocked |
 
-Aur `tests/test_data_backfill.py` migration ko **rewind** karke check karta hai ki purane
-rows (hospital=NULL) "Default Hospital" ko assign hue, koi row delete nahi hua.
+And `tests/test_data_backfill.py` **rewinds** the migration to verify that old
+rows (hospital=NULL) were assigned to "Default Hospital" and no row was deleted.
 
 ---
 
@@ -57,8 +59,8 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 SENTRY_RELEASE=<git-sha>
 ```
 
-`settings.py` mein init **sirf tab** hota hai jab `SENTRY_DSN` bhara ho — local dev bilkul
-unaffected.
+In `settings.py`, init happens **only** when `SENTRY_DSN` is set — local dev is
+completely unaffected.
 
 ```python
 sentry_sdk.init(
@@ -66,60 +68,62 @@ sentry_sdk.init(
     environment=SENTRY_ENVIRONMENT,
     traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
     integrations=[DjangoIntegration(), CeleryIntegration()],
-    send_default_pii=False,        # hospital data hai - PII mat bhejo
+    send_default_pii=False,        # this is hospital data - do not send PII
     release=...,
 )
 ```
 
-`send_default_pii=False` jaan-boojh ke: patient/staff ke email aur IP Sentry mein nahi
-jaate. Error context mein request path, user **id** aur `hospital` slug milta hai
-(DjangoIntegration default behaviour), PII nahi.
+`send_default_pii=False` is deliberate: patient/staff emails and IPs never go to
+Sentry. The error context includes the request path, the user **id** and the
+`hospital` slug (DjangoIntegration default behaviour), no PII.
 
-Celery integration on hai, isliye no-show scoring task ke failures bhi track hote hain.
+Celery integration is on, so failures of the no-show scoring task are tracked
+too.
 
 ---
 
 ## 3. Docker
 
-| File | Kaam |
+| File | Purpose |
 |---|---|
 | `Dockerfile` | `python:3.12-slim`, deps, `collectstatic`, non-root `appuser`, healthcheck |
 | `docker-compose.yml` | `postgres` + `redis` + `web` (gunicorn) + `celery` |
 | `deploy/docker-entrypoint.sh` | DB wait → `migrate` → `manage_plans` → CMD |
-| `.dockerignore` | `.git`, `.env`, `db.sqlite3`, `backups/`, `ml_models/` image mein nahi jaate |
+| `.dockerignore` | `.git`, `.env`, `db.sqlite3`, `backups/`, `ml_models/` stay out of the image |
 
 ```bash
-cp .env.example .env        # POSTGRES_PASSWORD zaroor badlo
+cp .env.example .env        # change POSTGRES_PASSWORD!
 docker compose up --build
 ```
 
-Design ke decisions:
+Design decisions:
 
-- **Healthcheck-gated startup** — `web` aur `celery` `postgres`/`redis` ke *healthy* hone
-  ke baad hi start hote hain; entrypoint phir bhi khud DB wait karta hai (compose ke
-  bharose nahi).
-- **Migrations sirf `web` chalata hai** — `celery` container mein `SKIP_MIGRATIONS=1`,
-  warna do containers race karte.
-- **Volumes** — `postgres_data`, `redis_data`, `static_files`, `media_files`, aur
-  `ml_models` (trained joblib models deploy pe udd na jaayein).
+- **Healthcheck-gated startup** — `web` and `celery` start only after
+  `postgres`/`redis` are *healthy*; the entrypoint still waits for the DB itself
+  (it does not rely on compose).
+- **Migrations run only in `web`** — `SKIP_MIGRATIONS=1` in the `celery`
+  container, otherwise the two containers race.
+- **Volumes** — `postgres_data`, `redis_data`, `static_files`, `media_files`, and
+  `ml_models` (so trained joblib models survive a deploy).
 - **Non-root user** (`appuser`) + writable dirs.
-- Build-time `collectstatic` ke liye throwaway `SECRET_KEY` — image mein koi real secret
-  nahi jaata, sab runtime pe `.env` se.
+- A throwaway `SECRET_KEY` for build-time `collectstatic` — no real secret goes
+  into the image; everything comes from `.env` at runtime.
 
-Compose ke andar service names hi hostnames hain, isliye `DATABASE_URL` aur `REDIS_URL`
-compose file khud banati hai (`.env` mein alag se bharne ki zaroorat nahi).
+Inside compose, service names double as hostnames, so the compose file builds
+`DATABASE_URL` and `REDIS_URL` itself (no need to fill them in separately in
+`.env`).
 
 ---
 
 ## 4. CI/CD — `.github/workflows/ci.yml`
 
-**Job 1: `test`** (postgres 16 + redis 7 service containers ke saath)
+**Job 1: `test`** (with postgres 16 + redis 7 service containers)
 
 1. Python 3.12 setup + pip cache
 2. System deps (`libpq-dev`, `libjpeg-dev`, `zlib1g-dev`)
 3. `pip install -r requirements.txt -r requirements-dev.txt`
 4. `python manage.py check`
-5. `python manage.py makemigrations --check --dry-run` — **pending migration ho to fail**
+5. `python manage.py makemigrations --check --dry-run` — **fails on any pending migration**
 6. `pytest --cov=. --cov-fail-under=70` (coverage gate)
 7. `python manage.py spectacular --file ... --validate` (OpenAPI schema)
 8. `coverage.xml` artifact upload
@@ -127,10 +131,10 @@ compose file khud banati hai (`.env` mein alag se bharne ki zaroorat nahi).
 **Job 2: `docker`** (`needs: test`)
 
 1. `docker build -t hospital-saas:ci .`
-2. Image ke andar `python manage.py check` (smoke test)
+2. `python manage.py check` inside the image (smoke test)
 
-Trigger: `main` + `arena/**` pe push, sab PRs, aur manual `workflow_dispatch`.
-Koi secret zaroori nahi — tests ke liye dummy env inline hai.
+Trigger: push to `main` + `arena/**`, all PRs, and manual `workflow_dispatch`.
+No secrets required — dummy env for the tests is inline.
 
 ---
 
@@ -148,7 +152,7 @@ Koi secret zaroori nahi — tests ke liye dummy env inline hai.
 
 ## 6. Migration commands
 
-Koi naya migration nahi. Standard sequence wahi:
+No new migrations. The standard sequence is unchanged:
 
 ```bash
 ./deploy/backup_db.sh --tag pre-phase5
@@ -170,21 +174,21 @@ python manage.py spectacular --file /tmp/schema.yml --validate
   -> Errors: 0 (0 unique), Warnings: 18 (7 unique), 56 KB schema
 
 python manage.py makemigrations --check --dry-run   -> No changes detected
-python manage.py check                              -> 2 issues (dono pre-existing)
+python manage.py check                              -> 2 issues (both pre-existing)
 bash -n deploy/docker-entrypoint.sh                 -> OK
 docker-compose.yml + ci.yml                         -> YAML parse OK (PyYAML)
 ```
 
 ---
 
-## 8. Jo verify NAHI hua (honestly)
+## 8. What was NOT verified (honestly)
 
-| Cheez | Status |
+| Item | Status |
 |---|---|
-| `docker build` / `docker compose up` | **Unverified** — is sandbox mein Docker daemon nahi hai. Dockerfile/compose likhe gaye hain, YAML + shell syntax check hua, image build nahi hua. Apni machine pe `docker compose up --build` chala kar confirm karo. |
-| GitHub Actions ka actual run | **Unverified** — workflow push hone par hi chalega. YAML parse verify hua hai. |
-| Sentry ko real events milna | **Unverified** — DSN ke bina init hi nahi hota. DSN bhar ke jaan-boojh kar ek 500 kara ke verify karo. |
-| Postgres pe test suite | **Unverified locally** — local runs SQLite pe hue. CI Postgres 16 pe chalata hai; pehla CI run dekh lo. |
+| `docker build` / `docker compose up` | **Unverified** — this sandbox has no Docker daemon. The Dockerfile/compose files were written, YAML + shell syntax checked, but no image was built. Run `docker compose up --build` on your machine to confirm. |
+| An actual GitHub Actions run | **Unverified** — the workflow only runs once pushed. YAML parsing has been verified. |
+| Sentry receiving real events | **Unverified** — without a DSN, init does not happen at all. Fill in the DSN and deliberately trigger a 500 to verify. |
+| Test suite on Postgres | **Unverified locally** — local runs used SQLite. CI runs on Postgres 16; check the first CI run. |
 
 ---
 
@@ -192,7 +196,7 @@ docker-compose.yml + ci.yml                         -> YAML parse OK (PyYAML)
 
 ```bash
 # Docker
-cp .env.example .env            # POSTGRES_PASSWORD badlo
+cp .env.example .env            # change POSTGRES_PASSWORD
 docker compose up --build
 docker compose ps               # postgres/redis healthy, web/celery running
 curl http://localhost:8000/healthz
@@ -200,16 +204,16 @@ docker compose exec web python manage.py preflight --census
 
 # Celery connectivity
 docker compose exec web celery -A hospital_system call hospital_system.debug_ping
-docker compose logs -f celery   # booking karke "Appointment N scored" dekho
+docker compose logs -f celery   # book an appointment and look for "Appointment N scored"
 
 # CI
-git push                        # GitHub Actions -> Actions tab mein run dekho
+git push                        # GitHub Actions -> watch the run in the Actions tab
 ```
 
 ---
 
-## 10. Phase 6 ke liye notes
+## 10. Notes for Phase 6
 
-README mein yeh sab document karna hai: Docker quick start, `.env` reference,
-multi-tenant local testing (subdomain + `/etc/hosts` + `X-Hospital-Slug`), API usage,
-aur troubleshooting.
+The README must document all of: Docker quick start, `.env` reference,
+multi-tenant local testing (subdomain + `/etc/hosts` + `X-Hospital-Slug`), API
+usage, and troubleshooting.

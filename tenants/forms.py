@@ -1,13 +1,13 @@
 """
 Tenant-aware form helpers.
 
-Zaroorat kyun padi: ModelForm ki metaclass FK dropdown ka queryset CLASS DEFINE
-hote waqt hi capture kar leti hai (us waqt koi tenant active nahi hota, isliye
-manager unscoped queryset deta hai). Form jab request mein use hoti hai tab
-queryset re-scope karna zaroori hai - warna doosre hospital ke patients/doctors
-dropdown mein dikh jaate.
+Why this was needed: ModelForm's metaclass captures the FK dropdown's
+queryset at CLASS DEFINITION time (no tenant is active then, so the manager
+returns an unscoped queryset). When the form is used in a request, the
+queryset must be re-scoped - otherwise another hospital's patients/doctors
+would show up in the dropdown.
 
-Isliye har ModelForm is mixin ke saath banayi gayi hai.
+That is why every ModelForm is built with this mixin.
 """
 from django import forms
 
@@ -15,7 +15,7 @@ from .managers import TenantQuerySet
 
 
 class TenantFormMixin:
-    """Har ModelChoiceField ka queryset current tenant tak limit karo."""
+    """Limit every ModelChoiceField's queryset to the current tenant."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

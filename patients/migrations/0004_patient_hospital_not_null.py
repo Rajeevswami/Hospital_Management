@@ -1,14 +1,14 @@
 """
-Phase 1 (step 3 of 3): `hospital` ko NOT NULL karo.
+Phase 1 (step 3 of 3): make `hospital` NOT NULL.
 
-Order matter karta hai:
-  000X_*_hospital            -> FK nullable add hua
-  tenants.0002_assign_...    -> Default Hospital bana, purana saara data assign hua
-  yeh migration              -> ab NOT NULL safe hai
+Order matters:
+  000X_*_hospital            -> FK added as nullable
+  tenants.0002_assign_...    -> Default Hospital created, all pre-existing data assigned
+  this migration             -> NOT NULL is safe now
 
-Safety: apply karne se pehle check hota hai ki koi row NULL hospital ke saath na
-bachi ho. Agar bachi hai to migration RUK jaati hai aur exact table/row count
-batati hai - data chup-chaap galat assign nahi hoga.
+Safety: before applying, it checks that no row is left with a NULL hospital.
+If any remain, the migration STOPS and reports the exact table/row count -
+data is never silently mis-assigned.
 """
 from django.db import migrations, models
 import django.db.models.deletion
@@ -23,9 +23,9 @@ def verify_no_null_hospital(apps, schema_editor):
             problems.append(f"{app_label}.{model_name}: {count} row(s)")
     if problems:
         raise RuntimeError(
-            "hospital NOT NULL karne se pehle yeh rows Default Hospital ko assign karo: "
+            "Assign these rows to Default Hospital before making hospital NOT NULL: "
             + "; ".join(problems)
-            + "  (tenants.0002_assign_default_hospital dobara chalao ya manually set karo)"
+            + "  (re-run tenants.0002_assign_default_hospital or set them manually)"
         )
 
 
@@ -50,7 +50,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name='%(app_label)s_%(class)s_set', to='tenants.hospital',
-                help_text='Tenant - kaunsa hospital yeh record own karta hai',
+                help_text='Tenant - which hospital owns this record',
             ),
         ),
     ]

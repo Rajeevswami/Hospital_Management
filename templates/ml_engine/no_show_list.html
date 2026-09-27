@@ -50,10 +50,10 @@
         {% endif %}
         {% if engine == 'rules' %}
         <div class="alert alert-info mt-3 mb-0 small">
-            Abhi <strong>lead time + day-of-week + patient history</strong> wale rules se score ban raha hai.
-            {{ readiness.required_rows }} labelled appointments ho jaane par
+            Scores are currently produced by the <strong>lead time + day-of-week + patient history</strong> rules.
+            Once there are {{ readiness.required_rows }} labelled appointments,
             <code>python manage.py train_no_show{% if request.hospital %} --hospital {{ request.hospital.slug }}{% endif %}</code> chalao -
-            naya model apne aap use hone lagega.
+            the new model will start being used automatically.
         </div>
         {% endif %}
     </div>
@@ -101,7 +101,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="8" class="text-center text-muted">Koi upcoming appointment nahi mila jiska score bana ho. Naye appointments pe score apne aap banta hai.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted">No upcoming appointment found with a score. New appointments are scored automatically.</td></tr>
         {% endfor %}
         </tbody>
     </table>

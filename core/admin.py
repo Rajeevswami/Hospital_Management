@@ -4,8 +4,8 @@ from .models import AuditLog
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    # Audit trail platform-level hai (superuser only) - isliye tenant-scoped nahi,
-    # par tenant-wise filter kar sakte hain.
+    # The audit trail is platform-level (superuser only) - so it is not tenant-scoped,
+    # but it can be filtered per tenant.
     list_filter_extra = ('hospital',)
     list_display = ('timestamp', 'user', 'action', 'model_name', 'object_id', 'object_repr', 'ip_address')
     list_filter = ('action', 'model_name', 'hospital')

@@ -1,4 +1,4 @@
-"""Health check - load balancer / uptime monitor ke liye. Tenant-exempt path hai."""
+"""Health check - for the load balancer / uptime monitor. A tenant-exempt path."""
 import time
 
 from django.db import connection
@@ -8,7 +8,7 @@ _START = time.time()
 
 
 def healthz(request):
-    """DB reachable hai ya nahi - 200 ya 503. Koi tenant/auth zaroori nahi."""
+    """Whether the DB is reachable - 200 or 503. No tenant/auth required."""
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")

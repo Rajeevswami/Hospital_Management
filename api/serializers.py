@@ -2,9 +2,9 @@
 DRF serializers.
 
 Multi-tenant rules:
-  * `hospital` kabhi client se accept NAHI hota - server request.hospital se set karta hai.
-  * FK fields (patient/doctor) tenant-scoped manager se validate hote hain, isliye
-    doosre hospital ka pk bheja to "invalid pk" milega (leak nahi).
+  * `hospital` is NEVER accepted from the client - the server sets it from request.hospital.
+  * FK fields (patient/doctor) are validated through the tenant-scoped manager, so
+    sending another hospital's pk yields "invalid pk" (no leak).
 """
 from rest_framework import serializers
 from rest_framework.relations import ManyRelatedField, PrimaryKeyRelatedField
@@ -20,14 +20,14 @@ from tenants.models import Hospital
 
 class TenantModelSerializer(serializers.ModelSerializer):
     """
-    FK fields ko REQUEST ke tenant tak scope karta hai.
+    Scopes FK fields to the REQUEST's tenant.
 
-    Yeh zaroori hai: `PrimaryKeyRelatedField(queryset=Patient.objects.all())`
-    class-definition (import) ke waqt evaluate hota hai, jab tenant enforcement
-    OFF hoti hai. Wo queryset object phir wahi rehta hai - UNSCOPED. Matlab
-    client doosre hospital ka patient pk bhej kar validate kara leta = cross-tenant
-    write. Isliye har serializer instance (har request) pe queryset dobara bandha
-    jaata hai. HTML forms ka `TenantModelForm` bhi yahi karta hai.
+    This is necessary: `PrimaryKeyRelatedField(queryset=Patient.objects.all())`
+    is evaluated at class-definition (import) time, when tenant enforcement is
+    OFF. That queryset object then stays as it is - UNSCOPED. That meant a
+    client could validate another hospital's patient pk = a cross-tenant
+    write. So on every serializer instance (every request) the queryset is
+    re-bound. The HTML forms' `TenantModelForm` does the same.
     """
 
     def get_fields(self):
@@ -46,7 +46,7 @@ class TenantModelSerializer(serializers.ModelSerializer):
         model = target.queryset.model
         if hospital is None or not hasattr(model, "all_objects"):
             return
-        # for_hospital(): tenant context ki zaroorat nahi, explicit filter
+        # for_hospital(): no tenant context needed, explicit filter
         target.queryset = model.objects.for_hospital(hospital)
 
 
@@ -127,7 +127,7 @@ class AppointmentSerializer(TenantModelSerializer):
     doctor_name = serializers.SerializerMethodField()
     risk = AppointmentRiskSerializer(read_only=True)
     hospital = serializers.SlugRelatedField(slug_field="slug", read_only=True)
-    # FK: tenant-scoped manager se validate (doosre hospital ka pk reject)
+    # FK: validated through the tenant-scoped manager (another hospital's pk is rejected)
     patient = serializers.PrimaryKeyRelatedField(queryset=Patient.objects.all())
     doctor = serializers.PrimaryKeyRelatedField(queryset=Doctor.objects.all())
 
@@ -142,7 +142,7 @@ class AppointmentSerializer(TenantModelSerializer):
         return obj.doctor.user.get_full_name() if obj.doctor_id else None
 
     def validate(self, attrs):
-        # Model.clean() wahi conflict check karta hai jo HTML form karta hai
+        # Model.clean() performs the same conflict check the HTML form does
         instance = Appointment(**{**self._writable_defaults(), **attrs})
         instance.pk = self.instance.pk if self.instance else None
         instance.ensure_hospital()
@@ -158,7 +158,7 @@ class AppointmentSerializer(TenantModelSerializer):
 
 
 class AppointmentStatusSerializer(serializers.Serializer):
-    """PATCH /api/appointments/<id>/status/ ke liye."""
+    """For PATCH /api/appointments/<id>/status/."""
 
     status = serializers.ChoiceField(choices=Appointment.Status.choices)
 
@@ -186,7 +186,7 @@ class InvoiceSerializer(TenantModelSerializer):
 
 
 class TokenObtainSerializer(serializers.Serializer):
-    """Swagger docs ke liye - actual validation SimpleJWT karta hai."""
+    """For the Swagger docs - the actual validation is done by SimpleJWT."""
 
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)

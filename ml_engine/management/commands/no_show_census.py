@@ -1,8 +1,8 @@
 """
-PHASE 3 KA PEHLA STEP: kitna historical appointment data available hai?
+FIRST STEP OF PHASE 3: how much historical appointment data is available?
 
-Yeh command batati hai ki ML model train ho sakta hai ya rule-based fallback
-chalega - har hospital ke liye alag.
+This command reports whether an ML model can be trained or the rule-based
+fallback will run - separately for each hospital.
 
     python manage.py no_show_census
     python manage.py no_show_census --hospital acme
@@ -18,11 +18,11 @@ from tenants.models import Hospital
 
 
 class Command(BaseCommand):
-    help = "No-show ML ke liye available historical data ka census."
+    help = "Census of the historical data available for no-show ML."
 
     def add_arguments(self, parser):
-        parser.add_argument("--hospital", help="Sirf is slug ka hospital")
-        parser.add_argument("--by-month", action="store_true", help="Month-wise breakdown bhi dikhao")
+        parser.add_argument("--hospital", help="Only the hospital with this slug")
+        parser.add_argument("--by-month", action="store_true", help="Also show a month-wise breakdown")
 
     def handle(self, *args, **opts):
         from appointments.models import Appointment

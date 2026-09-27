@@ -1,9 +1,9 @@
 """
 Test-only settings override.
 
-WhiteNoise ka CompressedManifestStaticFilesStorage `collectstatic` ke bina
-"Missing staticfiles manifest entry" error deta hai (templates {% static %} use
-karte hain), isliye tests mein simple storage backend.
+WhiteNoise's CompressedManifestStaticFilesStorage raises "Missing staticfiles
+manifest entry" without `collectstatic` (the templates use {% static %}), so the
+tests use a simple storage backend.
 """
 from hospital_system.settings import *  # noqa: F401,F403
 
@@ -13,13 +13,13 @@ STORAGES = {
 }
 
 # ---- Phase 3: ML / Celery ----
-# Broker ke bina task turant chale (sync) - warna tests ko Redis chahiye hota.
+# Tasks run immediately (sync) without a broker - otherwise the tests would need Redis.
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
-# Trained models repo ke andar na banein - pytest ke temp dir mein
+# Trained models must not be created inside the repo - in pytest's temp dir
 import tempfile  # noqa: E402
 
 ML_MODEL_DIR = tempfile.mkdtemp(prefix="ml_models_test_")
-# Chhota threshold taaki training pipeline ko kam synthetic data se test kar saken
+# Small threshold so the training pipeline can be tested with little synthetic data
 ML_MIN_TRAINING_ROWS = 40
 

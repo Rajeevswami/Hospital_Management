@@ -15,16 +15,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='admission',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Tenant - kaunsa hospital yeh record own karta hai', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text='Tenant - which hospital owns this record', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
         ),
         migrations.AddField(
             model_name='bed',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Tenant - kaunsa hospital yeh record own karta hai', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text='Tenant - which hospital owns this record', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
         ),
         migrations.AddField(
             model_name='ward',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Tenant - kaunsa hospital yeh record own karta hai', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text='Tenant - which hospital owns this record', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='%(app_label)s_%(class)s_set', to='tenants.hospital'),
         ),
     ]

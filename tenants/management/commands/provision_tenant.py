@@ -1,13 +1,13 @@
 """
-Naya tenant (hospital) + uska pehla ADMIN login banata hai.
+Creates a new tenant (hospital) + its first ADMIN login.
 
-Local multi-tenant testing aur naye customer onboarding ke liye:
+For local multi-tenant testing and new customer onboarding:
 
     python manage.py provision_tenant --name "Acme Hospital" --slug acme \\
         --admin-username acme-admin --admin-email admin@acme.test --admin-password 'StrongPass!23'
 
-Subdomain mode mein:  http://acme.localhost:8000/  (hosts file mein
-`127.0.0.1 acme.localhost` add karna zaroori hai).
+In subdomain mode:  http://acme.localhost:8000/  (you must add
+`127.0.0.1 acme.localhost` to your hosts file).
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -18,15 +18,15 @@ from tenants.models import Hospital
 
 
 class Command(BaseCommand):
-    help = "Naya hospital (tenant) + uska ADMIN user create karo."
+    help = "Create a new hospital (tenant) + its ADMIN user."
 
     def add_arguments(self, parser):
-        parser.add_argument("--name", required=True, help="Hospital ka naam")
-        parser.add_argument("--slug", help="Subdomain (default: name se slugify)")
+        parser.add_argument("--name", required=True, help="Hospital name")
+        parser.add_argument("--slug", help="Subdomain (default: slugified from the name)")
         parser.add_argument("--admin-username", required=True)
         parser.add_argument("--admin-email", default="")
         parser.add_argument("--admin-password", required=True)
-        parser.add_argument("--inactive", action="store_true", help="Hospital suspended create karo")
+        parser.add_argument("--inactive", action="store_true", help="Create the hospital as suspended")
 
     @transaction.atomic
     def handle(self, *args, **opts):

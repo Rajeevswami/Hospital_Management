@@ -7,24 +7,24 @@ from tenants.managers import TenantManager, UnscopedManager
 
 class TenantUserManager(TenantManager, UserManager):
     """
-    Default manager: tenant-scoped queryset + Django ke UserManager helpers.
+    Default manager: tenant-scoped queryset + Django's UserManager helpers.
 
-    `UserManager` isliye zaroori hai kyunki `AbstractUser.clean()` internally
-    `self.__class__.objects.normalize_email(self.email)` call karta hai. Plain
-    `TenantManager` (jo `models.Manager` se banta hai) pe wo method hota hi nahi,
-    isliye koi bhi UserCreationForm (Staff → Add) save par 500 deta tha:
+    `UserManager` is required because `AbstractUser.clean()` internally calls
+    `self.__class__.objects.normalize_email(self.email)`. A plain
+    `TenantManager` (built from `models.Manager`) does not have that method at
+    all, so any UserCreationForm (Staff → Add) returned a 500 on save:
         AttributeError: 'TenantManager' object has no attribute 'normalize_email'
     """
 
-    # `UserManager.use_in_migrations = True` inherit hota hai - use OFF rakho,
-    # warna `makemigrations` har baar AlterModelManagers maangta hai. Tenant
-    # managers runtime tenant context pe depend karte hain, migrations mein
-    # serialize hona hi galat hai.
+    # `UserManager.use_in_migrations = True` is inherited - keep it OFF,
+    # otherwise `makemigrations` keeps asking for AlterModelManagers. Tenant
+    # managers depend on the runtime tenant context; serializing them into
+    # migrations is simply wrong.
     use_in_migrations = False
 
 
 class UnscopedUserManager(UnscopedManager, UserManager):
-    """`User.all_objects` - bina tenant filter, par UserManager helpers ke saath."""
+    """`User.all_objects` - without tenant filtering, but with UserManager helpers."""
 
     use_in_migrations = False
 
@@ -42,9 +42,10 @@ class User(AbstractUser):
         RECEPTIONIST = 'RECEPTIONIST', 'Receptionist'
         PHARMACIST = 'PHARMACIST', 'Pharmacist'
 
-    # MULTI-TENANT (Phase 1): username ab GLOBALLY unique nahi. AbstractUser ka
-    # unique=True override karna zaroori tha, warna do hospitals 'admin' username
-    # share nahi kar sakte the. Per-hospital uniqueness neeche constraint se aati hai.
+    # MULTI-TENANT (Phase 1): username is no longer GLOBALLY unique. Overriding
+    # AbstractUser's unique=True was necessary, otherwise two hospitals could not
+    # share the 'admin' username. Per-hospital uniqueness comes from the
+    # constraint below.
     username = models.CharField(
         'username', max_length=150, unique=False,
         validators=[UnicodeUsernameValidator()],
@@ -53,31 +54,31 @@ class User(AbstractUser):
     )
 
     # ---------------- MULTI-TENANCY (Phase 1) ----------------
-    # hospital NULL sirf platform super-admin ke liye hota hai (jo SaaS chalate hain,
-    # kisi ek hospital ke staff nahi). Normal staff ka hospital hamesha set hota hai.
+    # hospital is NULL only for platform super-admins (who run the SaaS,
+    # not staff of any one hospital). Normal staff always have a hospital set.
     hospital = models.ForeignKey(
         'tenants.Hospital', on_delete=models.CASCADE, null=True, blank=True,
         related_name='staff',
-        help_text='Yeh login kis hospital ka hai. NULL = platform super-admin.',
+        help_text='Which hospital this login belongs to. NULL = platform super-admin.',
     )
     is_platform_admin = models.BooleanField(
         default=False,
-        help_text='Platform (SaaS) operator - sab hospitals dekh sakta hai. Hospital staff ke liye OFF.',
+        help_text='Platform (SaaS) operator - can see all hospitals. OFF for hospital staff.',
     )
 
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.RECEPTIONIST)
     phone = models.CharField(max_length=15, blank=True)
     is_active_staff = models.BooleanField(default=True, help_text="Deactivate instead of deleting accounts")
 
-    # objects -> current tenant ke staff; all_objects -> sab (auth backend / platform admin)
+    # objects -> the current tenant's staff; all_objects -> everything (auth backend / platform admin)
     objects = TenantUserManager()
     all_objects = UnscopedUserManager()
-    # Django ke apne internals (createsuperuser, contrib.auth) ke liye unscoped manager
+    # an unscoped manager for Django's own internals (createsuperuser, contrib.auth)
     unscoped = UserManager()
 
     class Meta:
-        # Username ab GLOBALLY unique nahi - har hospital ka apna 'admin' ho sakta hai.
-        # Email bhi per-hospital unique (do hospitals mein same email alag logins ho sakte hain).
+        # Username is no longer GLOBALLY unique - each hospital can have its own 'admin'.
+        # Email is also unique per-hospital (the same email in two hospitals can be different logins).
         constraints = [
             models.UniqueConstraint(fields=['hospital', 'username'], name='uniq_username_per_hospital'),
             models.UniqueConstraint(
@@ -110,7 +111,7 @@ class User(AbstractUser):
         return self.hospital.name if self.hospital_id else 'Platform'
 
     def belongs_to(self, hospital):
-        """Tenant check helper - views/decorators ke liye."""
+        """Tenant check helper - for views/decorators."""
         if self.is_platform_admin and self.hospital_id is None:
             return True
         return bool(hospital) and self.hospital_id == hospital.pk

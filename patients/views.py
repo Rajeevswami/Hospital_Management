@@ -26,13 +26,13 @@ def patient_list(request):
 @login_required
 @role_required('ADMIN', 'RECEPTIONIST')
 def patient_create(request):
-    # Phase 2: plan ka patient_limit check (unlimited plans pe kuch nahi hota)
+    # Phase 2: the plan's patient_limit check (nothing happens on unlimited plans)
     allowed, reason, limit = check_limit(request, 'patient_limit', Patient.objects.count())
     if not allowed:
         if reason == 'limit_reached':
-            messages.error(request, f'Aapke plan ki limit {limit} patients ki hai. Plan upgrade karo.')
+            messages.error(request, f'Your plan is limited to {limit} patients. Please upgrade your plan.')
         else:
-            messages.error(request, 'Patient register karne ke liye active subscription zaroori hai.')
+            messages.error(request, 'An active subscription is required to register a patient.')
         return redirect('subscriptions:billing')
 
     form = PatientForm(request.POST or None)

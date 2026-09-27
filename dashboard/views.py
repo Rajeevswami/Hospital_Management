@@ -29,8 +29,8 @@ def home(request):
     elif user.is_pharmacist:
         context.update(_pharmacist_stats())
 
-    # Phase 3: AI no-show alerts - sirf jab plan mein ai_no_show on ho.
-    # Doctor ko sirf apne appointments dikhte hain (existing RBAC ke hisaab se).
+    # Phase 3: AI no-show alerts - only when the plan has ai_no_show on.
+    # Doctors see only their own appointments (per the existing RBAC).
     context['ai_no_show_enabled'], _reason = check_feature(request, 'ai_no_show')
     if context['ai_no_show_enabled']:
         context['high_risk_appointments'] = _high_risk_appointments(user)

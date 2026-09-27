@@ -1,6 +1,6 @@
-# Django 6 ke liye Python 3.12+ chahiye. Python 3.11 pe pip isse Django 5.2 LTS
-# install karega - poora test suite (159 tests) 5.2.17 pe verified hai.
-# Production 6.0.6 chalata hai, isliye upper bound 6.1 rakha hai.
+# Django 6 requires Python 3.12+. On Python 3.11 pip will install Django 5.2 LTS
+# from this - the full test suite (159 tests) is verified on 5.2.17.
+# Production runs 6.0.6, so the upper bound is 6.1.
 Django>=5.2.17,<6.1
 psycopg2-binary==2.9.12
 python-decouple==3.8

@@ -1,14 +1,14 @@
 """
 API routes (Phase 4).
 
-    GET  /api/                     discovery (kaun se endpoints hain)
+    GET  /api/                     discovery (which endpoints exist)
     POST /api/token/               JWT access + refresh (tenant-scoped login)
-    POST /api/token/refresh/       refresh token se naya access token
-    POST /api/token/verify/        token valid hai ya nahi
-    GET  /api/me/                  apna profile
+    POST /api/token/refresh/       new access token from the refresh token
+    POST /api/token/verify/        whether the token is valid
+    GET  /api/me/                  own profile
     GET  /api/hospital/            current tenant + plan
     GET  /api/subscription/        plan/limits/feature flags
-    GET  /api/features/?feature=x  ek feature allowed hai ya nahi
+    GET  /api/features/?feature=x  whether a feature is allowed
     CRUD /api/patients/ /api/doctors/ /api/appointments/ /api/invoices/ /api/staff/
     GET  /api/risks/               no-show risk scores (+ /api/risks/high/)
     GET  /api/schema/              OpenAPI 3 schema (YAML/JSON)
@@ -53,6 +53,6 @@ urlpatterns = [
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 
-    # Browsable API ke auth links (DRF ka built-in login/logout)
+    # Auth links of the browsable API (DRF's built-in login/logout)
     path("auth/", include("rest_framework.urls")),
 ]

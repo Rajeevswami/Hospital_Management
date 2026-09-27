@@ -1,14 +1,15 @@
 """
 Razorpay recurring-subscription integration (Phase 2).
 
-Saare keys .env se aate hain (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET /
-RAZORPAY_WEBHOOK_SECRET) - code mein kuch hardcode nahi hai.
+All keys come from .env (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET /
+RAZORPAY_WEBHOOK_SECRET) - nothing is hardcoded in the code.
 
-Do baatein dhyan mein rakhna:
-  1. Webhook signature verification HMAC-SHA256 se KHUD ki gayi hai (SDK pe
-     depend nahi karte) - kyunki yeh security boundary hai aur testable honi chahiye.
-  2. SDK na installed ho ya keys set na hon to clear error, crash nahi -
-     warna local dev / bina Razorpay wale tenant pe poora app down ho jaata.
+Two things to keep in mind:
+  1. Webhook signature verification is done OURSELVES with HMAC-SHA256 (no SDK
+     dependency) - because this is a security boundary and must be testable.
+  2. If the SDK is not installed or the keys are not set -> a clear error, not a
+     crash - otherwise local dev / a tenant without Razorpay would take the
+     whole app down.
 """
 import hashlib
 import hmac
@@ -20,10 +21,10 @@ logger = logging.getLogger(__name__)
 
 
 class RazorpayNotConfigured(Exception):
-    """Keys missing ya SDK installed nahi - user ko yeh message dikhao."""
+    """Keys missing or SDK not installed - show this message to the user."""
 
 
-# Razorpay subscription entity status -> apna Subscription.Status
+# Razorpay subscription entity status -> our Subscription.Status
 STATUS_MAP = {
     "created": "PENDING",
     "authenticated": "ACTIVE",
@@ -38,7 +39,7 @@ STATUS_MAP = {
 
 
 def get_keys():
-    """(key_id, key_secret, webhook_secret) - settings se, kabhi hardcode nahi."""
+    """(key_id, key_secret, webhook_secret) - from settings, never hardcoded."""
     key_id = getattr(settings, "RAZORPAY_KEY_ID", "") or ""
     key_secret = getattr(settings, "RAZORPAY_KEY_SECRET", "") or ""
     webhook_secret = getattr(settings, "RAZORPAY_WEBHOOK_SECRET", "") or ""
@@ -53,19 +54,19 @@ def is_configured():
 def require_configured():
     if not is_configured():
         raise RazorpayNotConfigured(
-            "Razorpay configured nahi hai. .env mein RAZORPAY_KEY_ID aur "
-            "RAZORPAY_KEY_SECRET set karo (test-mode keys se shuru karo)."
+            "Razorpay is not configured. Set RAZORPAY_KEY_ID and "
+            "RAZORPAY_KEY_SECRET in .env (start with test-mode keys)."
         )
 
 
 def get_client():
-    """Razorpay SDK client. ImportError/keys dono handle karta hai."""
+    """Razorpay SDK client. Handles both ImportError and missing keys."""
     require_configured()
     try:
         import razorpay
     except ImportError as exc:  # pragma: no cover - environment dependent
         raise RazorpayNotConfigured(
-            "razorpay package installed nahi hai: pip install -r requirements.txt"
+            "the razorpay package is not installed: pip install -r requirements.txt"
         ) from exc
     key_id, key_secret, _ = get_keys()
     return razorpay.Client(auth=(key_id, key_secret))
@@ -84,14 +85,14 @@ def verify_webhook_signature(raw_body, signature):
     """
     Razorpay webhook signature check.
 
-    raw_body EXACT bytes hone chahiye jo request mein aaye (request.body) -
-    JSON parse karke dobara dumps karne se signature match nahi hoga.
-    Timing-safe compare use hota hai.
+    raw_body must be the EXACT bytes that arrived in the request (request.body) -
+    parsing JSON and dumping it again will not match the signature.
+    A timing-safe compare is used.
     """
     _, _, webhook_secret = get_keys()
     if not webhook_secret:
         raise RazorpayNotConfigured(
-            "RAZORPAY_WEBHOOK_SECRET set nahi hai - webhook verify nahi kar sakte."
+            "RAZORPAY_WEBHOOK_SECRET is not set - cannot verify the webhook."
         )
     if not signature:
         return False
@@ -101,7 +102,7 @@ def verify_webhook_signature(raw_body, signature):
 
 def verify_checkout_signature(razorpay_subscription_id, razorpay_payment_id, signature):
     """
-    Checkout ke baad browser se aaya hua signature verify karo.
+    Verify the signature that came from the browser after checkout.
     expected = HMAC_SHA256(key_secret, "{subscription_id}|{payment_id}")
     """
     require_configured()
@@ -115,8 +116,8 @@ def verify_checkout_signature(razorpay_subscription_id, razorpay_payment_id, sig
 # ------------------------------------------------------------------- entities
 def ensure_plan(plan):
     """
-    Plan ke liye Razorpay pe plan banao (agar plan_id pehle se nahi hai).
-    Idempotent: razorpay_plan_id set hai to wapas wahi use hota hai.
+    Create the plan on Razorpay for this Plan (unless plan_id already exists).
+    Idempotent: if razorpay_plan_id is set, that same one is reused.
     """
     if plan.razorpay_plan_id:
         return plan.razorpay_plan_id
@@ -153,8 +154,8 @@ def create_customer(hospital):
 
 def create_subscription(subscription):
     """
-    Razorpay subscription entity banao aur local Subscription pe ids store karo.
-    Hospital ke liye customer pehle se bana hoga (ya abhi ban jaayega).
+    Create the Razorpay subscription entity and store the ids on the local Subscription.
+    The customer for the hospital already exists (or is created now).
     """
     client = get_client()
     plan = subscription.plan
@@ -202,8 +203,8 @@ def cancel_subscription(razorpay_subscription_id, cancel_at_cycle_end=True):
 
 def checkout_payload(subscription):
     """
-    Razorpay.js checkout ke liye zaroori data. Template isko JSON mein daal ke
-    handler script ko deta hai.
+    Data needed for the Razorpay.js checkout. The template embeds it as JSON
+    and passes it to the handler script.
     """
     require_configured()
     key_id, _, _ = get_keys()

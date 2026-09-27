@@ -1,28 +1,29 @@
 """
-Feature extraction - rules engine aur ML model DONO isi ko use karte hain,
-taaki training aur prediction mein feature mismatch na ho (silent accuracy killer).
+Feature extraction - BOTH the rules engine and the ML model use this,
+so training and prediction cannot have a feature mismatch (a silent accuracy killer).
 
-Zaroori rule: sirf wahi information use hoti hai jo appointment ke BANNE ke waqt
-available thi. Future data (jaise appointment ka final status) kabhi feature nahi
-banta - warna model train pe to perfect lagega, production pe bekaar.
+Important rule: only information that was available at the moment the
+appointment was CREATED is used. Future data (like the appointment's final
+status) never becomes a feature - otherwise the model looks perfect in
+training and is useless in production.
 """
 from datetime import date
 
 from django.utils import timezone
 
-# Order matter karta hai - model isi order mein features maangta hai.
+# Order matters - the model requests features in this order.
 FEATURE_NAMES = [
-    "lead_days",              # booking se appointment tak kitne din
-    "lead_hours",             # same, ghanton mein (same-day booking pakadne ke liye)
-    "is_same_day",            # aaj book karke aaj hi aana
+    "lead_days",              # how many days from booking to the appointment
+    "lead_hours",             # the same, in hours (to catch same-day bookings)
+    "is_same_day",            # booked today and coming today
     "day_of_week",            # 0=Mon .. 6=Sun
     "is_weekend",
-    "is_monday",              # monday no-shows zyada hote hain (weekend backlog)
+    "is_monday",              # no-shows are more common on Mondays (weekend backlog)
     "hour_of_day",
-    "is_early_slot",          # subah 9 se pehle
-    "is_late_slot",           # shaam 5 ke baad
+    "is_early_slot",          # before 9 AM
+    "is_late_slot",           # after 5 PM
     "patient_age",
-    "patient_prev_appts",     # is patient ke pehle kitne appointments
+    "patient_prev_appts",     # how many appointments this patient had before
     "patient_prev_no_shows",
     "patient_no_show_rate",
     "days_since_last_visit",
@@ -35,7 +36,7 @@ FEATURE_NAMES = [
     "has_phone",
 ]
 
-# No-show ka final label
+# The final no-show label
 NO_SHOW_STATUS = "NO_SHOW"
 OUTCOME_STATUSES = ("COMPLETED", "NO_SHOW", "CANCELLED")
 
@@ -48,9 +49,9 @@ def _days_between(a, b):
 
 def extract_for_appointment(appointment):
     """
-    Ek appointment ke liye feature dict.
-    `appointment` ke related patient/doctor queries tenant context maangte hain -
-    isliye yeh function hamesha request ya `tenant_context()` ke andar call karo.
+    Feature dict for one appointment.
+    The related patient/doctor queries require a tenant context -
+    so always call this function inside a request or `tenant_context()`.
     """
     now = timezone.now()
     appt_dt = timezone.datetime.combine(
@@ -67,7 +68,7 @@ def extract_for_appointment(appointment):
     patient = appointment.patient
     doctor = appointment.doctor
 
-    # ---- patient history (sirf is appointment se PEHLE ke records) ----
+    # ---- patient history (only records from BEFORE this appointment) ----
     prev_appts = _patient_history(patient, appointment)
 
     prev_count = prev_appts["count"]
@@ -104,7 +105,7 @@ def extract_for_appointment(appointment):
 
 
 def to_vector(features):
-    """dict -> list, FEATURE_NAMES ke order mein."""
+    """dict -> list, in FEATURE_NAMES order."""
     return [float(features[name]) for name in FEATURE_NAMES]
 
 
@@ -116,7 +117,7 @@ def _age(dob, on_date):
 
 
 def _patient_history(patient, appointment):
-    """Is appointment se pehle ke patient appointments ka hisaab."""
+    """Tally of the patient's appointments before this appointment."""
     from appointments.models import Appointment
 
     qs = Appointment.all_objects.filter(

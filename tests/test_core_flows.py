@@ -1,5 +1,5 @@
 """
-Core flows multi-tenant duniya mein bhi kaam kar rahe hain ya nahi:
+Whether the core flows still work in the multi-tenant world:
 appointment booking, billing/PDF, RBAC, per-hospital ID sequence.
 """
 import datetime as dt
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 
 @pytest.fixture
 def setup_hospital(hospital_a, make_user):
-    """Hospital A ke andar ek complete mini-hospital."""
+    """A complete mini-hospital inside hospital A."""
     admin = make_user(hospital_a, username="admin-a", role=User.Role.ADMIN)
     doctor_user = make_user(hospital_a, username="doc-a", role=User.Role.DOCTOR)
     receptionist = make_user(hospital_a, username="rec-a", role=User.Role.RECEPTIONIST)
@@ -126,14 +126,14 @@ class TestAppointmentBooking:
         with tenant_scope(h):
             appt = Appointment.objects.get()
         assert appt.status == Appointment.Status.SCHEDULED
-        assert appt.hospital_id == h.pk          # tenant auto-assign hua
+        assert appt.hospital_id == h.pk          # tenant was auto-assigned
         assert appt.fee == setup_hospital["doctor"].consultation_fee
-        # Phase 3: booking ke turant baad signal -> Celery (eager) -> risk row
+        # Phase 3: right after booking, signal -> Celery (eager) -> risk row
         from ml_engine.models import AppointmentRisk
 
         with tenant_scope(h):
             risk = AppointmentRisk.objects.filter(appointment=appt).first()
-        assert risk is not None, "HTTP booking pe risk score banna chahiye tha"
+        assert risk is not None, "a risk score should have been created on HTTP booking"
         assert risk.engine == AppointmentRisk.Engine.RULES
 
     def test_double_booking_same_slot_rejected(self, client, setup_hospital):
@@ -149,7 +149,7 @@ class TestAppointmentBooking:
             client.force_login(setup_hospital["receptionist"])
             assert client.post("/appointments/add/", payload, HTTP_HOST="acme.testserver").status_code == 302
             second = client.post("/appointments/add/", payload, HTTP_HOST="acme.testserver")
-        assert second.status_code == 200  # form error ke saath wapas
+        assert second.status_code == 200  # back with a form error
         assert "already booked" in second.content.decode()
 
 
@@ -165,14 +165,14 @@ class TestBillingFlow:
             )
             client.force_login(setup_hospital["receptionist"])
 
-            # step 1: patient choose karo
+            # step 1: choose a patient
             step1 = client.get(
                 f"/billing/create/?patient={setup_hospital['patient'].pk}",
                 HTTP_HOST="acme.testserver",
             )
             assert step1.status_code == 302
 
-            # step 2: unbilled appointment ko invoice banao
+            # step 2: turn the unbilled appointment into an invoice
             create = client.post(
                 f"/billing/create/{setup_hospital['patient'].pk}/",
                 {"appointments": [appt.pk]},
@@ -187,7 +187,7 @@ class TestBillingFlow:
             appt.refresh_from_db()
             assert appt.is_billed is True
 
-            # payment record karo
+            # step: record the payment
             pay = client.post(
                 f"/billing/{invoice.pk}/pay/",
                 {"amount": "500", "mode": "UPI"},
@@ -198,7 +198,7 @@ class TestBillingFlow:
             assert invoice.status == Invoice.Status.PAID
             assert Payment.objects.get().hospital_id == h.pk
 
-            # PDF banta hai (ReportLab) - feature break nahi hua
+            # the PDF is generated (ReportLab) - the feature is not broken
             pdf = client.get(f"/billing/{invoice.pk}/pdf/", HTTP_HOST="acme.testserver")
         assert pdf.status_code == 200
         assert pdf["Content-Type"] == "application/pdf"
@@ -207,13 +207,13 @@ class TestBillingFlow:
 
 class TestStaffCreateFromAdminUI:
     """
-    Admin UI se staff banana - asli UserCreationForm path.
+    Creating staff from the Admin UI - the real UserCreationForm path.
 
     Regression: `AbstractUser.clean()` internally `self.__class__.objects
-    .normalize_email(...)` call karta hai. Jab `User.objects` plain
-    `TenantManager` tha to yahan `AttributeError` aata tha aur
-    POST /accounts/staff/add/ **500** deta tha - fresh install pe admin
-    koi doctor/receptionist add hi nahi kar sakta tha.
+    .normalize_email(...)`. When `User.objects` was a plain
+    `TenantManager`, this raised `AttributeError` and
+    POST /accounts/staff/add/ used to return **500** - on a fresh install the admin
+    no doctor/receptionist could be added at all.
     """
 
     @staticmethod
@@ -241,7 +241,7 @@ class TestStaffCreateFromAdminUI:
                 "username": "asha.doc",
                 "first_name": "Asha",
                 "last_name": "Verma",
-                "email": "Asha@ACME-Test.COM",   # domain uppercase - normalize hona chahiye
+                "email": "Asha@ACME-Test.COM",   # uppercase domain - should be normalized
                 "phone": "9000000002",
                 "role": User.Role.DOCTOR,
                 "password1": "DocPass!123",
@@ -254,12 +254,12 @@ class TestStaffCreateFromAdminUI:
         created = User.all_objects.get(username="asha.doc")
         assert created.hospital == setup_hospital["hospital"]
         assert created.role == User.Role.DOCTOR
-        # normalize_email ne domain ko lowercase kiya (local-part waisa hi)
+        # normalize_email lowercased the domain (local-part unchanged)
         assert created.email == "Asha@acme-test.com"
         assert created.check_password("DocPass!123")
 
     def test_user_managers_expose_normalize_email(self, setup_hospital):
-        """`objects` / `all_objects` / `unscoped` - teeno pe helper maujood ho."""
+        """`objects` / `all_objects` / `unscoped` - the helper exists on all three."""
         expected = "Asha@acme-test.com"
         assert User.objects.normalize_email("Asha@ACME-Test.COM") == expected
         assert User.all_objects.normalize_email("Asha@ACME-Test.COM") == expected
@@ -267,8 +267,8 @@ class TestStaffCreateFromAdminUI:
 
     def test_admin_can_create_doctor_profile_from_doctors_page(self, setup_hospital):
         """
-        /doctors/add/ bhi User ka ModelForm use karta hai - ModelForm._post_clean
-        instance.full_clean() chalata hai, isliye wahan bhi wahi 500 aata tha.
+        /doctors/add/ also uses User's ModelForm - ModelForm._post_clean runs
+        instance.full_clean(), so the same 500 happened there too.
         """
         self._active_plan(setup_hospital["hospital"])
         client = Client()

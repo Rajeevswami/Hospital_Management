@@ -1,12 +1,12 @@
 """
-Kisi hospital ko plan assign karo (subscription banao/replace karo).
+Assign a plan to a hospital (create/replace the subscription).
 
     python manage.py assign_plan --hospital acme --plan growth
     python manage.py assign_plan --hospital acme --plan growth --days 30
     python manage.py assign_plan --hospital acme --plan free --trial-days 14
 
-Local testing aur manual onboarding ke liye. Razorpay involvement nahi -
-isliye yeh command bina keys ke bhi chalti hai.
+For local testing and manual onboarding. No Razorpay involvement -
+so this command works without keys too.
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -17,10 +17,10 @@ from tenants.models import Hospital
 
 
 class Command(BaseCommand):
-    help = "Hospital ko plan assign karo (subscription active kar do)."
+    help = "Assign a plan to a hospital (activate its subscription)."
 
     def add_arguments(self, parser):
-        parser.add_argument("--hospital", required=True, help="Hospital slug ya id")
+        parser.add_argument("--hospital", required=True, help="Hospital slug or id")
         parser.add_argument("--plan", required=True, help="Plan code")
         parser.add_argument("--days", type=int, default=30, help="Billing period length (default 30)")
         parser.add_argument("--trial-days", type=int, default=0, help="Trial period (status=TRIALING)")
@@ -33,13 +33,13 @@ class Command(BaseCommand):
             try:
                 hospital = Hospital.objects.get(pk=int(opts["hospital"]))
             except (Hospital.DoesNotExist, ValueError):
-                raise CommandError(f"Hospital nahi mila: {opts['hospital']}")
+                raise CommandError(f"Hospital not found: {opts['hospital']}")
 
         try:
             plan = Plan.objects.get(code=opts["plan"])
         except Plan.DoesNotExist:
             raise CommandError(
-                f"Plan nahi mila: {opts['plan']}. Pehle `manage.py manage_plans` chalao."
+                f"Plan not found: {opts['plan']}. Run `manage.py manage_plans` first."
             )
 
         now = timezone.now()

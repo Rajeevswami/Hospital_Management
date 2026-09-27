@@ -15,7 +15,7 @@ venv/
 htmlcov/
 tests/__pycache__/
 
-# Local data - image mein kabhi nahi jaana chahiye
+# Local data - should never go into the image
 db.sqlite3
 test_db.sqlite3
 backups/

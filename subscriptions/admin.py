@@ -20,7 +20,7 @@ class PlanAdmin(admin.ModelAdmin):
                     "description": "-1 = unlimited"}),
         ("Features", {"fields": ("features_json",)}),
         ("Razorpay", {"fields": ("razorpay_plan_id",),
-                      "description": "Khaali chhodo to `ensure_plan` command bana dega."}),
+                      "description": "Leave empty and the `ensure_plan` command will create it."}),
         ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
     )
 
@@ -46,4 +46,4 @@ class PaymentEventAdmin(admin.ModelAdmin):
     readonly_fields = [f.name for f in PaymentEvent._meta.fields]
 
     def has_add_permission(self, request):
-        return False  # sirf webhook likhta hai
+        return False  # only the webhook writes it

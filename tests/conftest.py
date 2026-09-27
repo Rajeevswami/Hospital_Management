@@ -1,10 +1,10 @@
 """
-Shared fixtures - multi-tenant tests ke liye.
+Shared fixtures - for the multi-tenant tests.
 
-Zaroori baat: TenantManager request ke dauraan hi strict hota hai
-(tenants.managers._tenant_enforcement_active). Isliye direct-ORM tests
-`tenant_scope()` use karte hain, aur HTTP tests Django test client (middleware
-khud flag set karta hai).
+Important: TenantManager is strict only during a request
+(tenants.managers._tenant_enforcement_active). That is why direct-ORM tests
+use `tenant_scope()`, and HTTP tests use the Django test client (the middleware
+sets the flag itself).
 """
 import contextlib
 import datetime as dt
@@ -19,7 +19,7 @@ from tenants.models import Hospital
 
 @contextlib.contextmanager
 def tenant_scope(hospital):
-    """Tenant context + 'request active' flag - direct ORM tests ke liye."""
+    """Tenant context + 'request active' flag - for direct ORM tests."""
     prev_hospital = getattr(tenant_ctx._local, "hospital", None)
     prev_request = getattr(tenant_ctx._local, "request_active", False)
     prev_enforce = getattr(tenant_ctx._local, "enforce", True)
@@ -56,7 +56,7 @@ def hospital_a(make_hospital):
 
 @pytest.fixture
 def hospital_b(make_hospital):
-    # NOTE: 'beta' RESERVED_SUBDOMAINS mein hai, isliye 'beta-city'
+    # NOTE: 'beta' is in RESERVED_SUBDOMAINS, so 'beta-city'
     return make_hospital(name="Beta Hospital", slug="beta-city")
 
 
@@ -104,7 +104,7 @@ def make_patient(db):
 
 @pytest.fixture
 def tenant(hospital_a):
-    """Test ko hospital A ke context mein chalao."""
+    """Run the test in hospital A's context."""
     with tenant_scope(hospital_a):
         yield hospital_a
 
@@ -112,9 +112,9 @@ def tenant(hospital_a):
 @pytest.fixture(scope="session", autouse=True)
 def _preload_urlconf(django_test_environment):
     """
-    URLconf ko tests shuru hone se pehle load karo (production mein wsgi.py yehi
-    karta hai). Warna pehli request ke waqt ModelForm ka FK default manager
-    tenant-scoped hone ki wajah se ImproperlyConfigured uthata hai.
+    Load the URLconf before the tests start (wsgi.py does exactly this in
+    production). Otherwise, on the first request, ModelForm's FK default manager
+    being tenant-scoped raises ImproperlyConfigured.
     """
     from django.urls import get_resolver
 
@@ -126,7 +126,7 @@ def _reset_tenant_context():
     yield
     tenant_ctx.clear_current_hospital()
     tenant_ctx.mark_request_finished()
-    # AuditContextMiddleware thread-local hai; worker reuse pe stale user na rahe
+    # AuditContextMiddleware is thread-local; no stale user on worker reuse
     from core import audit_context
 
     audit_context.set_current_request(None, None)

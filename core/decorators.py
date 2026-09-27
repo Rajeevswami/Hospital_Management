@@ -41,14 +41,14 @@ class RoleRequiredMixin(LoginRequiredMixin):
 
 
 # ====================== MULTI-TENANCY (Phase 1) ======================
-# role_required() ka permission logic BILKUL waisa hi hai (koi role rule nahi
-# toota). Yeh functions sirf ek extra diwaar add karte hain: user us hospital ka
-# hona chahiye jis hospital ka data maanga ja raha hai.
+# role_required()'s permission logic is EXACTLY as before (no role rule is
+# broken). These functions only add one extra wall: the user must belong to the
+# hospital whose data is being requested.
 
 
 def check_tenant(request):
     """
-    User ka hospital == request ka hospital? Nahi to 404 (data ka pata bhi na
+    User's hospital == request's hospital? If not, 404 (not even the data's existence is
     chale). Platform super-admin (hospital=None + is_platform_admin) exempt.
     """
     user = request.user
@@ -64,7 +64,7 @@ def check_tenant(request):
 
 
 def tenant_required(view_func):
-    """View pe lagao: tenant zaroori hai aur user usi hospital ka hona chahiye."""
+    """Apply to a view: a tenant is required and the user must belong to that hospital."""
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
         if getattr(request, 'hospital', None) is None:
@@ -75,7 +75,7 @@ def tenant_required(view_func):
 
 
 def platform_admin_required(view_func):
-    """Sirf SaaS operator (platform super-admin) ke liye - hospital staff ke liye nahi."""
+    """Only for the SaaS operator (platform super-admin) - not for hospital staff."""
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
         user = request.user

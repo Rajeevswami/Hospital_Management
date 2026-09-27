@@ -1,6 +1,6 @@
 """
-Templates mein subscription/plan info - har request pe available.
-Isse navbar/dashboard pe "current plan" aur feature-gated buttons dikh sakte hain.
+Subscription/plan info for templates - available on every request.
+With it, the navbar/dashboard can show the "current plan" and feature-gated buttons.
 """
 from .gating import check_feature, get_subscription, is_platform_admin
 from .models import Feature
@@ -17,8 +17,8 @@ def subscription(request):
         allowed, _reason = check_feature(request, feature)
         return allowed
 
-    # Templates mein `{% if feature_flags.ai_no_show %}` use hota hai.
-    # Yeh usi already-fetched subscription se banta hai - extra DB query nahi.
+    # Templates use `{% if feature_flags.ai_no_show %}`.
+    # It is built from the already-fetched subscription - no extra DB query.
     feature_flags = {
         feature: (True if platform else bool(accessible and sub.plan.has_feature(feature)))
         for feature in Feature.values

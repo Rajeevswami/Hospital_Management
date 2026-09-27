@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
-# CI - har push / PR pe
+# CI - on every push / PR
 #   1. Django system checks + pending-migration check
-#   2. pytest (postgres + redis services ke saath) with coverage gate (>=70%)
+#   2. pytest (with postgres + redis services) and a coverage gate (>=70%)
 #   3. OpenAPI schema validation
 #
-# Secrets: koi zaroorat nahi (tests ke liye dummy env inline hai).
+# Secrets: none needed (dummy env for the tests is inline).
 # ---------------------------------------------------------------------------
 name: CI
 
@@ -15,8 +15,8 @@ on:
   workflow_dispatch:
 
 
-# Default token permissions repo pe read-only ho sakti hain - failure summary
-# PR pe comment karne ke liye pull-requests:write chahiye.
+# Default token permissions may be read-only for the repo - commenting the
+# failure summary on the PR needs pull-requests:write.
 permissions:
   contents: read
   pull-requests: write
@@ -25,8 +25,8 @@ jobs:
   test:
     name: Django checks + pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    # Python 3.11 pe Django 5.2 LTS install hota hai, 3.12 pe Django 6
-    # (pin: Django>=5.2.17,<6.1). Dono paths CI mein verify hote hain.
+    # Python 3.11 installs Django 5.2 LTS, 3.12 installs Django 6
+    # (pin: Django>=5.2.17,<6.1). Both paths are verified in CI.
     strategy:
       fail-fast: false
       matrix:
@@ -63,11 +63,11 @@ jobs:
       CELERY_BROKER_URL: redis://127.0.0.1:6379/0
       CELERY_TASK_ALWAYS_EAGER: "True"
       ML_MODEL_DIR: /tmp/ci_ml_models
-      # ALLOWED_HOSTS deliberately set NAHI kiya: settings SAAS_ROOT_DOMAIN
-      # (testserver) se '.testserver' wildcard bana leta hai, aur Django test
-      # runner 'testserver' khud add karta hai. '*' dene se
-      # test_unrelated_host_is_rejected_by_django fail hota hai (evil.com
-      # allow ho jaata -> 400 ki jagah 302).
+      # ALLOWED_HOSTS is deliberately NOT set: settings derives a '.testserver'
+      # wildcard from SAAS_ROOT_DOMAIN (testserver), and the Django test runner
+      # adds 'testserver' itself. Setting '*' would make
+      # test_unrelated_host_is_rejected_by_django fail (evil.com would be
+      # allowed -> 302 instead of 400).
 
     steps:
       - uses: actions/checkout@v4
@@ -91,7 +91,7 @@ jobs:
       - name: Django system checks
         run: python manage.py check
 
-      - name: Makemigrations dry-run (koi pending migration to nahi?)
+      - name: Makemigrations dry-run (any pending migrations?)
         run: python manage.py makemigrations --check --dry-run
 
       - name: Run tests with coverage (>=70% gate)
@@ -103,8 +103,8 @@ jobs:
             --cov=. --cov-report=term-missing --cov-report=xml \
             --cov-fail-under=70 -q 2>&1 | tee pytest-output.txt
 
-      # Log download runner se bahar aksar blocked hota hai, isliye failure ka
-      # summary seedha PR pe comment kar do - debug karne ke liye.
+      # Downloading logs from the runner is often blocked outside GitHub, so
+      # comment the failure summary straight on the PR - for debugging.
       - name: Comment failure summary on PR
         if: failure() && steps.pytest.outcome == 'failure' && github.event_name == 'pull_request'
         env:
@@ -127,8 +127,8 @@ jobs:
           gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" --body-file /tmp/pytest-summary.md
 
-      # Green run ka bhi record PR pe rakho (counts + coverage TOTAL line).
-      # Runner ke log/artifact sandbox se aksar readable nahi hote.
+      # Keep a record of green runs on the PR too (counts + coverage TOTAL line).
+      # Runner logs/artifacts are often not readable outside the GitHub sandbox.
       - name: Comment pass summary on PR
         if: success() && steps.pytest.outcome == 'success' && github.event_name == 'pull_request'
         env:
@@ -166,7 +166,7 @@ jobs:
       - name: Build image
         run: docker build -t hospital-saas:ci .
 
-      # Image ke andar sanity check: Django check + migration state
+      # Sanity check inside the image: Django check + migration state
       - name: Smoke test inside image
         run: |
           docker run --rm \

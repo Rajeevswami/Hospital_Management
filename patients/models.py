@@ -22,8 +22,8 @@ class Patient(TenantModel):
         O_NEG = 'O-', 'O-'
         UNKNOWN = 'UNK', 'Unknown'
 
-    # MULTI-TENANT: ab globally unique nahi - per-hospital unique. Do hospitals
-    # dono ka PAT-2026-0001 ho sakta hai; purane IDs bilkul waise hi rehte hain.
+    # MULTI-TENANT: no longer globally unique - unique per-hospital. Two
+    # hospitals can both have PAT-2026-0001; old IDs stay exactly as they were.
     patient_id = models.CharField(max_length=20, editable=False, db_index=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100, blank=True)
@@ -65,7 +65,7 @@ class Patient(TenantModel):
         # Generate human-readable ID only once, on creation: PAT-2026-0001
         # Uses a dedicated counter row (core.IDCounter) so it's safe even when
         # many receptionists register patients at the exact same instant.
-        # hospital pehle resolve karo (INSERT se pehle ID generate karni hai)
+        # resolve hospital first (the ID must be generated before the INSERT)
         self.ensure_hospital()
         if not self.patient_id:
             from core.models import IDCounter

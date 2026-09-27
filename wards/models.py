@@ -36,7 +36,7 @@ class Bed(TenantModel):
 
 class Admission(TenantModel):
     """
-    The core 'patient admit hua, konsi bimari thi' record.
+    The core 'patient was admitted, with which disease' record.
     One active admission per patient at a time (enforced in the view, not DB,
     since a patient can be admitted again after discharge).
     """
