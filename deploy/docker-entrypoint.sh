@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Container start hone se pehle:
-#   1. Postgres ke ready hone ka wait (compose healthcheck ke bharose na rahein)
-#   2. migrations apply
-#   3. static files (volume mount ke case mein dobara collect)
-#   4. phir CMD chalao (gunicorn / celery worker)
+# Before the container starts:
+#   1. Wait for Postgres to be ready (do not rely on the compose healthcheck)
+#   2. Apply migrations
+#   3. Collect static files (collect again in case of a volume mount)
+#   4. Then run CMD (gunicorn / celery worker)
 #
-# Celery worker ke liye migrations skip karne ka option: SKIP_MIGRATIONS=1
+# Option to skip migrations (e.g. for the celery worker): SKIP_MIGRATIONS=1
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -19,7 +19,7 @@ import dj_database_url
 
 url = config("DATABASE_URL", default="")
 if not url or url.startswith("sqlite"):
-    print("[entrypoint] sqlite - koi wait nahi")
+    print("[entrypoint] sqlite - no wait needed")
     raise SystemExit(0)
 
 conf = dj_database_url.parse(url)
@@ -33,7 +33,7 @@ for attempt in range(30):
         raise SystemExit(0)
     except psycopg2.OperationalError:
         time.sleep(2)
-raise SystemExit("[entrypoint] database ready nahi hua (60s) - exit")
+raise SystemExit("[entrypoint] database not ready after 60s - exiting")
 PY
 
 if [ "${SKIP_MIGRATIONS:-0}" != "1" ] && [ "${1:-}" != "celery" ]; then

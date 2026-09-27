@@ -1,6 +1,6 @@
 """
-Hospital admin - sirf platform super-admin ke liye (SaaS operator).
-Hospital staff yahan nahi aa sakta: TenantAdminMixin unka queryset none() kar deta hai.
+Hospital admin - only for platform super-admins (the SaaS operator).
+Hospital staff cannot get here: TenantAdminMixin turns their queryset into none().
 """
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -29,7 +29,7 @@ class HospitalAdmin(admin.ModelAdmin):
         return request.user.is_superuser or getattr(request.user, 'is_platform_admin', False)
 
     def has_delete_permission(self, request, obj=None):
-        # Tenant delete karna = customer ka poora data delete. Sirf superuser.
+        # Deleting a tenant = deleting the customer's entire data. Superuser only.
         return request.user.is_superuser
 
     def get_queryset(self, request):

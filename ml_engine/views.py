@@ -1,8 +1,8 @@
 """
 Phase 3 views - no-show risk dashboard.
 
-Poora section `@feature_required("ai_no_show")` se gated hai (abhi sirf Scale
-plan mein on). Dashboard ka chhota alert panel bhi usi feature check se dikhta hai.
+The whole section is gated by `@feature_required("ai_no_show")` (currently on
+only in the Scale plan). The dashboard's small alert panel is shown by the same feature check.
 """
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -35,7 +35,7 @@ def no_show_dashboard(request):
         rows.append({"appointment": appt, "risk": risk})
     rows.sort(key=lambda r: -r["risk"].score)
 
-    # Platform admin ke paas request.hospital None hota hai - tab global scope
+    # A platform admin has request.hospital = None - then the global scope
     hospital = getattr(request, "hospital", None)
     predictor = get_predictor(hospital)
     info = readiness(hospital)
@@ -64,11 +64,11 @@ def _setting(name, default):
 @role_required("ADMIN", "RECEPTIONIST", "DOCTOR")
 @feature_required("ai_no_show")
 def rescore(request, pk):
-    """Ek appointment ka score dobara compute karo (model retrain ke baad kaam aata hai)."""
+    """Recompute one appointment's score (useful after a model retrain)."""
     appointment = get_object_or_404(Appointment, pk=pk)
     risk = score_appointment(appointment)
     if risk is None:
-        messages.error(request, "Score compute nahi ho paya - logs dekho.")
+        messages.error(request, "Could not compute the score - check the logs.")
     else:
         messages.success(
             request,
@@ -81,7 +81,7 @@ def rescore(request, pk):
 @role_required("ADMIN", "RECEPTIONIST", "DOCTOR")
 @feature_required("ai_no_show")
 def rescore_all(request):
-    """Saare scheduled appointments re-score karo (Celery queue mein jaata hai)."""
+    """Re-score all scheduled appointments (goes into the Celery queue)."""
     from .tasks import score_appointment_task
 
     ids = list(
@@ -90,5 +90,5 @@ def rescore_all(request):
     )
     for pk in ids:
         score_appointment_task.delay(pk)
-    messages.success(request, f"{len(ids)} appointments queue mein daal diye gaye.")
+    messages.success(request, f"{len(ids)} appointments were queued.")
     return redirect("ml_engine:no_show_dashboard")

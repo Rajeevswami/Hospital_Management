@@ -1,16 +1,16 @@
 """
 Phase 0 safety gate for the SaaS migration.
 
-Kyun: system live production mein hai. Har phase shuru karne se pehle ek hi
-command se confirm kar lo ki (a) code chal raha hai, (b) secrets sirf env se
-aa rahe hain, (c) migrations applied hain, (d) kitna data hai (Phase 3 ke
-cold-start decision ke liye yehi number chahiye).
+Why: the system is in live production. Before starting every phase, confirm with
+a single command that (a) the code runs, (b) secrets come only from the env,
+(c) migrations are applied, (d) how much data exists (this exact number is
+needed for the Phase 3 cold-start decision).
 
 USAGE
-    python manage.py preflight                 # sab checks
+    python manage.py preflight                 # all checks
     python manage.py preflight --census        # + row counts (Phase 3 planning)
-    python manage.py preflight --strict        # fail hone pe exit code 1 (CI ke liye)
-    python manage.py preflight --skip-secrets  # secret scan skip
+    python manage.py preflight --strict        # exit code 1 on any FAIL (for CI)
+    python manage.py preflight --skip-secrets  # skip the secret scan
 """
 import re
 import subprocess
@@ -21,16 +21,17 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import connection
 
-MIN_PYTHON = (3, 12)     # Django 6.0 isi pe chalta hai (requirements.txt Django==6.0.6)
+MIN_PYTHON = (3, 12)     # Django 6.0 runs on this (requirements.txt Django==6.0.6)
 MIN_DJANGO = (6, 0)
 
-# Folders jinke andar secret scan nahi karna (vendor / duplicate copies)
+# Folders excluded from the secret scan (vendor / duplicate copies)
 SECRET_SCAN_SKIP = ("hospital_system_delivery", "node_modules", ".venv", "venv")
 
-# Docs/examples mein aise dummy passwords aate hain - inhe secret mat maano
+# Such dummy passwords appear in docs/examples - do not treat them as secrets
 PLACEHOLDER_PASSWORDS = {
     "password", "pass", "secret", "changeme", "change-me", "your_password",
-    "yourpassword", "strong_password", "strong_password_yaha_daalo", "xxx",
+    "yourpassword", "strong_password", "put_strong_password_here",
+    "change-me-strong-password", "xxx",
     "test", "example", "dummy", "postgres", "redacted", "changemeinproduction",
 }
 
@@ -47,7 +48,7 @@ SECRET_PATTERNS = [
      re.compile(r"(?i)\b(?:secret|token|passwd|password|api_?key)\s*=\s*[\"'][A-Za-z0-9+/=_\-]{32,}[\"']")),
 ]
 
-# Census ke liye models - Phase 3 mein ML ke paas kitna data hai isi se pata chalega
+# Models for the census - this shows how much data the ML has in Phase 3
 CENSUS_MODELS = [
     ("tenants", "Hospital"),
     ("subscriptions", "Plan"),
@@ -66,12 +67,12 @@ CENSUS_MODELS = [
 
 
 class Command(BaseCommand):
-    help = "SaaS migration se pehle ka safety check: env config, secrets, DB, migrations, data census."
+    help = "Safety check before the SaaS migration: env config, secrets, DB, migrations, data census."
 
     def add_arguments(self, parser):
-        parser.add_argument("--census", action="store_true", help="Row counts bhi nikalo (read-only)")
-        parser.add_argument("--strict", action="store_true", help="Koi bhi FAIL ho to exit code 1")
-        parser.add_argument("--skip-secrets", action="store_true", help="Secret scan skip karo")
+        parser.add_argument("--census", action="store_true", help="Also compute row counts (read-only)")
+        parser.add_argument("--strict", action="store_true", help="Exit code 1 on any FAIL")
+        parser.add_argument("--skip-secrets", action="store_true", help="Skip the secret scan")
 
     def handle(self, *args, **opts):
         self.results = []
@@ -94,7 +95,7 @@ class Command(BaseCommand):
         self.stdout.write(f"  [{icon}] {name}: {detail}")
 
     def git(self, *args):
-        """Tracked files ki list; git na ho to None."""
+        """List of tracked files; None if git is unavailable."""
         try:
             out = subprocess.run(
                 ["git", *args], capture_output=True, text=True, check=True,
@@ -111,7 +112,7 @@ class Command(BaseCommand):
             self.record("ok", "Python version", f"{v.major}.{v.minor}.{v.micro} (>= {MIN_PYTHON[0]}.{MIN_PYTHON[1]})")
         else:
             self.record("fail", "Python version",
-                        f"{v.major}.{v.minor}.{v.micro} - Django 6.0 ke liye {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ chahiye")
+                        f"{v.major}.{v.minor}.{v.micro} - Django 6.0 requires {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+")
 
     def check_django(self):
         import django
@@ -120,7 +121,7 @@ class Command(BaseCommand):
             self.record("ok", "Django version", f"{django.get_version()} (>= {MIN_DJANGO[0]}.{MIN_DJANGO[1]})")
         else:
             self.record("warn", "Django version",
-                        f"{django.get_version()} installed, requirements.txt {MIN_DJANGO[0]}.{MIN_DJANGO[1]}+ maangta hai")
+                        f"{django.get_version()} installed, requirements.txt demands {MIN_DJANGO[0]}.{MIN_DJANGO[1]}+")
 
     def check_secret_key(self):
         key = settings.SECRET_KEY or ""
@@ -128,27 +129,27 @@ class Command(BaseCommand):
         if settings.DEBUG:
             status = "warn" if insecure else "ok"
             self.record(status, "SECRET_KEY",
-                        "dev placeholder (DEBUG=True, local ke liye theek)" if insecure else "custom key set")
+                        "dev placeholder (DEBUG=True, fine for local use)" if insecure else "custom key set")
         elif insecure or len(key) < 50:
-            self.record("fail", "SECRET_KEY", "DEBUG=False par weak/default key - production ke liye naya generate karo")
+            self.record("fail", "SECRET_KEY", "weak/default key with DEBUG=False - generate a new one for production")
         else:
             self.record("ok", "SECRET_KEY", f"set from env (len={len(key)})")
 
     def check_env_file_not_tracked(self):
         tracked = self.git("ls-files")
         if tracked is None:
-            self.record("warn", ".env tracking", "git available nahi - manually check karo ki .env commit nahi hua")
+            self.record("warn", ".env tracking", "git not available - check manually that .env is not committed")
             return
         files = tracked.splitlines()
         bad = [f for f in files if f == ".env" or f.endswith("/.env")]
         if bad:
-            self.record("fail", ".env tracking", f"COMMIT ho chuka hai: {', '.join(bad)} -> git rm --cached zaroori")
+            self.record("fail", ".env tracking", f"COMMITTED: {', '.join(bad)} -> git rm --cached is required")
         else:
-            self.record("ok", ".env tracking", ".env git mein nahi hai (sirf .env.example track hota hai)")
+            self.record("ok", ".env tracking", ".env is not in git (only .env.example is tracked)")
 
     @staticmethod
     def _is_placeholder_url(url):
-        """postgres://user:STRONG_PASSWORD@host -> example hai, real secret nahi."""
+        """postgres://user:STRONG_PASSWORD@host -> this is an example, not a real secret."""
         try:
             password = url.split(":", 2)[2].rsplit("@", 1)[0].lower()
         except IndexError:
@@ -158,7 +159,7 @@ class Command(BaseCommand):
     def check_hardcoded_secrets(self):
         tracked = self.git("ls-files")
         if tracked is None:
-            self.record("warn", "hardcoded secrets", "git available nahi - scan skip")
+            self.record("warn", "hardcoded secrets", "git not available - scan skipped")
             return
         hits = []
         scanned = 0
@@ -175,7 +176,7 @@ class Command(BaseCommand):
             scanned += 1
             for lineno, line in enumerate(text.splitlines(), 1):
                 stripped = line.strip()
-                # .env.example placeholders / obvious templates flag nahi karne
+                # do not flag .env.example placeholders / obvious templates
                 if stripped.startswith("#") or "change-me" in line or "CHANGE-THIS" in line or "<" in line:
                     continue
                 for label, pattern in SECRET_PATTERNS:
@@ -189,13 +190,13 @@ class Command(BaseCommand):
         if hits:
             self.record("fail", "hardcoded secrets", f"{len(hits)} hit(s): " + "; ".join(hits[:6]))
         else:
-            self.record("ok", "hardcoded secrets", f"{scanned} tracked files scan hue, koi secret nahi mila")
+            self.record("ok", "hardcoded secrets", f"{scanned} tracked files scanned, no secret found")
 
     def check_database(self):
         try:
             connection.ensure_connection()
             with connection.cursor() as cur:
-                # vendor ke hisaab se alag query - SQLite pe version() exist nahi karta
+                # a different query per vendor - version() does not exist on SQLite
                 query = {"postgresql": "SELECT version()",
                          "sqlite": "SELECT 'SQLite ' || sqlite_version()",
                          "mysql": "SELECT VERSION()"}.get(connection.vendor, "SELECT version()")
@@ -204,7 +205,7 @@ class Command(BaseCommand):
             engine = settings.DATABASES["default"]["ENGINE"].split(".")[-1]
             self.record("ok", "database", f"{engine} connected ({version})")
         except Exception as exc:
-            self.record("fail", "database", f"connect nahi ho paya: {exc}")
+            self.record("fail", "database", f"could not connect: {exc}")
 
     def check_unapplied_migrations(self):
         try:
@@ -214,19 +215,19 @@ class Command(BaseCommand):
             call_command("showmigrations", "--list", stdout=out, verbosity=0)
             text = out.getvalue()
         except Exception as exc:
-            self.record("warn", "migrations", f"showmigrations chal nahi paya: {exc}")
+            self.record("warn", "migrations", f"showmigrations could not run: {exc}")
             return
         unapplied = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("[ ]")]
         if unapplied:
             self.record("warn", "migrations", f"{len(unapplied)} unapplied: " + ", ".join(unapplied[:5]))
         else:
-            self.record("ok", "migrations", "saari migrations applied")
+            self.record("ok", "migrations", "all migrations applied")
 
     # ---------------- census ----------------
     def print_census(self):
         from django.apps import apps
         self.stdout.write("")
-        # Tenant-wise breakdown: har hospital mein kitna data hai
+        # Tenant-wise breakdown: how much data each hospital has
         try:
             from tenants.models import Hospital
             from tenants.context import all_tenants
@@ -244,11 +245,11 @@ class Command(BaseCommand):
                     self.stdout.write(f"      {slug:<20} {pat:>6} / {appt:>6} / {staff:>4}")
                 orphans = apps.get_model("patients", "Patient").all_objects.filter(hospital__isnull=True).count()
                 if orphans:
-                    self.stdout.write(self.style.ERROR(f"      {orphans} patient(s) bina hospital ke (orphans!)"))
+                    self.stdout.write(self.style.ERROR(f"      {orphans} patient(s) without a hospital (orphans!)"))
         except Exception as exc:
-            self.stdout.write(f"      tenant breakdown fail: {exc}")
+            self.stdout.write(f"      tenant breakdown failed: {exc}")
 
-        # Subscription coverage - kitne hospitals ke paas usable plan hai
+        # Subscription coverage - how many hospitals have a usable plan
         try:
             from subscriptions.models import Subscription
             from tenants.models import Hospital
@@ -260,16 +261,16 @@ class Command(BaseCommand):
             missing = max(total - accessible, 0)
             self.stdout.write(
                 f"      subscriptions: {accessible}/{total} hospitals accessible "
-                f"({missing} bina usable subscription)"
+                f"({missing} without a usable subscription)"
             )
             if accessible == 0 and total > 0:
                 self.stdout.write(self.style.WARNING(
-                    "      Koi hospital accessible nahi -> naye feature-block chalu hain. "
-                    "`manage.py manage_plans` + `assign_plan` chalao."
+                    "      No hospital is accessible -> new feature blocks are active. "
+                    "Run `manage.py manage_plans` + `assign_plan`."
                 ))
         except Exception as exc:
-            self.stdout.write(f"      subscription check fail: {exc}")
-        self.stdout.write("  DATA CENSUS (read-only counts) - Phase 3 ke cold-start decision ke liye:")
+            self.stdout.write(f"      subscription check failed: {exc}")
+        self.stdout.write("  DATA CENSUS (read-only counts) - for the Phase 3 cold-start decision:")
         for app_label, model_name in CENSUS_MODELS:
             try:
                 model = apps.get_model(app_label, model_name)
@@ -278,7 +279,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"      {app_label}.{model_name}: n/a ({exc.__class__.__name__})")
                 continue
             self.stdout.write(f"      {app_label}.{model_name:<14} {count}")
-        # ML ke liye sabse important number: labelled appointments (past, resolved status)
+        # The most important number for ML: labelled appointments (past, resolved status)
         try:
             from appointments.models import Appointment
             resolved = Appointment.objects.filter(
@@ -286,11 +287,11 @@ class Command(BaseCommand):
             ).count()
             self.stdout.write(f"      {'ML labelled rows':<34} {resolved}  (COMPLETED + NO_SHOW + CANCELLED)")
             self.stdout.write(f"      {'ML_MIN_TRAINING_ROWS':<34} {getattr(settings, 'ML_MIN_TRAINING_ROWS', 250)}")
-            verdict = "ML model train ho sakta hai" if resolved >= getattr(settings, "ML_MIN_TRAINING_ROWS", 250) \
-                else "COLD START -> rule-based fallback use hoga (Phase 3.2)"
+            verdict = "ML model can be trained" if resolved >= getattr(settings, "ML_MIN_TRAINING_ROWS", 250) \
+                else "COLD START -> rule-based fallback will be used (Phase 3.2)"
             self.stdout.write(f"      verdict: {verdict}")
         except Exception as exc:
-            self.stdout.write(f"      appointments count fail: {exc}")
+            self.stdout.write(f"      appointments count failed: {exc}")
 
     # ---------------- summary ----------------
     def print_summary(self, strict):
@@ -298,10 +299,10 @@ class Command(BaseCommand):
         warns = [r for r in self.results if r[0] == "warn"]
         self.stdout.write("")
         if fails:
-            self.stdout.write(self.style.ERROR(f"PREFLIGHT FAILED - {len(fails)} issue(s). Migration se pehle theek karo."))
+            self.stdout.write(self.style.ERROR(f"PREFLIGHT FAILED - {len(fails)} issue(s). Fix them before migrating."))
         elif warns:
             self.stdout.write(self.style.WARNING(f"PREFLIGHT OK with {len(warns)} warning(s)."))
         else:
-            self.stdout.write(self.style.SUCCESS("PREFLIGHT PASSED - Phase aage badha sakte ho."))
+            self.stdout.write(self.style.SUCCESS("PREFLIGHT PASSED - you can proceed with the phase."))
         if strict and fails:
             raise SystemExit(1)

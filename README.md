@@ -1,23 +1,28 @@
 # Hospital Management SaaS
 
-Multi-tenant hospital management system — ek hi deployment, kai hospitals. Har hospital ka
-apna subdomain (`acme.example.com`), apna data (poori tarah isolated), apna plan aur billing,
-aur AI-based no-show prediction.
+Multi-tenant hospital management system — one deployment, many hospitals. Each
+hospital gets its own subdomain (`acme.example.com`), its own data (fully
+isolated), its own plan and billing, plus AI-based no-show prediction.
 
-Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) ke saath.
+Django 6 + PostgreSQL + Redis + Celery + scikit-learn. With a REST API
+(JWT + Swagger).
 
-> **Live production se SaaS bana hai** — purana single-hospital data ek "Default Hospital"
-> tenant mein migrate hua hai, zero data loss. Migration ka poora record
-> [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) mein hai.
+![Hospital Management SaaS](docs/images/hero.png)
+
+> **Built from a live production system into a SaaS** — the old single-hospital
+> data was migrated into a "Default Hospital" tenant with zero data loss. The
+> full migration record is in
+> [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md).
 
 ---
 
 ## Contents
 
 - [Features](#features)
+- [Product screenshots](#product-screenshots)
 - [Architecture](#architecture)
 - [Quick start (Docker)](#quick-start-docker)
-- [Manual setup (bina Docker)](#manual-setup-bina-docker)
+- [Manual setup (without Docker)](#manual-setup-without-docker)
 - [`.env` configuration](#env-configuration)
 - [Multi-tenant local testing](#multi-tenant-local-testing)
 - [Plans & feature gating](#plans--feature-gating)
@@ -35,7 +40,7 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) 
 
 **Clinical / admin**
 
-| Module | Kya karta hai |
+| Module | What it does |
 |---|---|
 | Patients | Registration, per-hospital `PAT-2026-0001` IDs, history |
 | Doctors | Profiles, availability, consultation fee |
@@ -43,13 +48,13 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) 
 | Billing | Invoices, items, payments, PDF (ReportLab), per-hospital `INV-` numbers |
 | Pharmacy | Medicines, stock, prescriptions |
 | Wards | Beds, admissions, occupancy |
-| Staff & RBAC | ADMIN / DOCTOR / RECEPTIONIST / PHARMACIST — role + tenant dono se gated |
-| Audit log | Har critical action, user + IP ke saath |
+| Staff & RBAC | ADMIN / DOCTOR / RECEPTIONIST / PHARMACIST — gated by both role and tenant |
+| Audit log | Every critical action, with user + IP |
 | Security | django-axes brute-force lockout, idle session timeout, security headers |
 
 **SaaS layer**
 
-| Module | Kya karta hai |
+| Module | What it does |
 |---|---|
 | `tenants` | `Hospital` model, subdomain resolution, tenant-scoped managers |
 | `subscriptions` | Plans, subscriptions, Razorpay recurring, feature gating |
@@ -58,7 +63,35 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) 
 
 ---
 
+## Product screenshots
+
+> Illustrative screenshots of the product UI.
+
+**Dashboard overview** — today's appointments, occupancy, revenue and billing at
+a glance:
+
+![Dashboard overview](docs/images/dashboard-overview.png)
+
+**AI no-show risk** — every appointment scored 0–1 with human-readable reasons,
+so reception can confirm high-risk bookings in advance:
+
+![AI no-show risk dashboard](docs/images/dashboard-ai-risk.png)
+
+**Service modules** — the clinical/admin modules included in every deployment
+(patients, doctors, appointments, billing, pharmacy, wards, RBAC, audit log):
+
+![Service modules](docs/images/services-modules.png)
+
+**Plans & pricing** — the SaaS subscription plans with per-plan limits and
+feature gating (Free → Starter → Growth → Scale):
+
+![Plans and pricing](docs/images/services-plans.png)
+
+---
+
 ## Architecture
+
+![Architecture](docs/images/architecture.svg)
 
 ```
                  acme.example.com        beta.example.com
@@ -77,22 +110,25 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) 
         └───────────┬───────────┴────────────────────────┘
                     │
         ┌───────────▼───────────┐
-        │  Model.objects        │  <- TenantManager: har query automatically
-        │  (tenant-scoped)      │     current hospital tak limit
+        │  Model.objects        │  <- TenantManager: every query is automatically
+        │  (tenant-scoped)      │     limited to the current hospital
         └───────────┬───────────┘
                     │
               PostgreSQL
 ```
 
-**Tenant isolation ke 4 layers** (defense in depth):
+**4 layers of tenant isolation** (defense in depth):
 
-1. **Tenant-scoped manager** — `Patient.objects.all()` sirf current hospital ke rows deta
-   hai. Tenant active na ho to silent empty result nahi, `ImproperlyConfigured` (loud fail).
-2. **Per-hospital unique constraints** — `PAT-2026-0001` do hospitals mein ho sakta hai
-   (`UniqueConstraint(hospital, patient_id)`), isliye IDs collide nahi karte.
-3. **Cross-tenant guard** — hospital A ka user hospital B ke subdomain pe aaye to 403/404.
-4. **Tenant-aware auth backend** — `TenantModelBackend` sirf current tenant ke users ko
-   authenticate karta hai (dono hospitals mein same username ho sakta hai, leak nahi hota).
+1. **Tenant-scoped manager** — `Patient.objects.all()` returns only the current
+   hospital's rows. If no tenant is active you do not get a silent empty result,
+   you get `ImproperlyConfigured` (loud fail).
+2. **Per-hospital unique constraints** — `PAT-2026-0001` can exist in two
+   hospitals (`UniqueConstraint(hospital, patient_id)`), so IDs never collide.
+3. **Cross-tenant guard** — a hospital A user hitting hospital B's subdomain
+   gets 403/404.
+4. **Tenant-aware auth backend** — `TenantModelBackend` authenticates only the
+   current tenant's users (both hospitals can have the same username; nothing
+   leaks).
 
 ---
 
@@ -101,15 +137,15 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. REST API (JWT + Swagger) 
 ```bash
 git clone https://github.com/Rajeevswami/hospital-management
 cd hospital-management
-cp .env.example .env          # phir .env edit karo (kam se kam POSTGRES_PASSWORD)
+cp .env.example .env          # then edit .env (at least POSTGRES_PASSWORD)
 
 docker compose up --build
 ```
 
-Compose 4 services chalata hai: `postgres`, `redis`, `web` (gunicorn :8000), `celery`.
-Entry point apne aap migrations apply karta hai aur default plans seed karta hai.
+Compose runs 4 services: `postgres`, `redis`, `web` (gunicorn :8000), `celery`.
+The entry point applies migrations and seeds the default plans automatically.
 
-Ab pehla hospital banao:
+Now create the first hospital:
 
 ```bash
 docker compose exec web python manage.py provision_tenant \
@@ -119,16 +155,16 @@ docker compose exec web python manage.py provision_tenant \
 docker compose exec web python manage.py assign_plan --hospital acme --plan scale
 ```
 
-App: http://localhost:8000 (single tenant ke liye) — subdomain setup neeche dekho.
+App: http://localhost:8000 (for a single tenant) — see the subdomain setup below.
 API docs: http://localhost:8000/api/docs/
 
 ---
 
-## Manual setup (bina Docker)
+## Manual setup (without Docker)
 
-Python **3.11+** chahiye. Python 3.11 pe Django **5.2 LTS** install hota hai,
-Python 3.12+ pe Django 6 — dono par test suite pass karta hai
-(`requirements.txt` mein pin `Django>=5.2.17,<6.1` hai).
+Python **3.11+** is required. Python 3.11 installs Django **5.2 LTS**, Python
+3.12+ installs Django 6 — the test suite passes on both (the pin in
+`requirements.txt` is `Django>=5.2.17,<6.1`).
 
 ```bash
 git clone https://github.com/Rajeevswami/hospital-management.git
@@ -136,18 +172,18 @@ cd hospital-management
 
 python3 -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install -r requirements-dev.txt                   # tests ke liye (optional)
+pip install -r requirements-dev.txt                   # for tests (optional)
 
 cp .env.example .env          # Windows: copy .env.example .env
-                              # Local ke liye isme kuch bharne ki zaroorat nahi:
-                              # DATABASE_URL khaali = SQLite (db.sqlite3),
+                              # For local use you do not need to fill anything in:
+                              # empty DATABASE_URL = SQLite (db.sqlite3),
                               # DEBUG=True, SAAS_ROOT_DOMAIN=localhost,
-                              # CELERY_TASK_ALWAYS_EAGER=True (Redis ki zaroorat nahi)
+                              # CELERY_TASK_ALWAYS_EAGER=True (no Redis needed)
 
-python manage.py migrate                              # saari migrations
-python manage.py manage_plans                         # 4 plans seed (free/starter/growth/scale)
+python manage.py migrate                              # all migrations
+python manage.py manage_plans                         # seed 4 plans (free/starter/growth/scale)
 
-# Ek tenant (hospital) + uska admin user banao:
+# Create one tenant (hospital) + its admin user:
 python manage.py provision_tenant --name "Acme Hospital" --slug acme \
   --admin-username admin --admin-password 'ChangeMe!123'
 python manage.py assign_plan --hospital acme --plan scale
@@ -155,56 +191,57 @@ python manage.py assign_plan --hospital acme --plan scale
 python manage.py runserver
 ```
 
-Ab browser mein **http://localhost:8000/accounts/login/** kholo aur
-`admin` / `ChangeMe!123` se login karo.
+Now open **http://localhost:8000/accounts/login/** in a browser and log in with
+`admin` / `ChangeMe!123`.
 
-Platform admin (hospital=None, saare tenants dikhte hain) chahiye to:
+If you need a platform admin (hospital=None, sees all tenants):
 `python manage.py createsuperuser`.
 
-> `DATABASE_URL` khaali chhodne par app SQLite use karta hai. Production mein
-> `DATABASE_URL=postgres://user:pass@host:5432/db` set karo.
+> With an empty `DATABASE_URL` the app uses SQLite. In production set
+> `DATABASE_URL=postgres://user:pass@host:5432/db`.
 
-Redis + worker (async no-show scoring ke liye):
+Redis + worker (for async no-show scoring):
 
 ```bash
-redis-server                                # ya: docker run -p 6379:6379 redis:7-alpine
+redis-server                                # or: docker run -p 6379:6379 redis:7-alpine
 celery -A hospital_system worker -l info
 ```
 
-Redis ke bina bhi chal jaayega — `.env` mein `CELERY_TASK_ALWAYS_EAGER=True` rakho,
-tasks usi process mein sync chalenge (development ke liye theek, production ke liye nahi).
+It also works without Redis — keep `CELERY_TASK_ALWAYS_EAGER=True` in `.env`,
+and tasks run synchronously in the same process (fine for development, not for
+production).
 
 ---
 
 ## `.env` configuration
 
-Poora reference `.env.example` mein commented hai. Zaroori ones:
+The full reference is commented in `.env.example`. The essential ones:
 
-| Variable | Example | Kyun |
+| Variable | Example | Why |
 |---|---|---|
 | `SECRET_KEY` | 50+ random chars | Django |
 | `DEBUG` | `False` (prod) | |
 | `DATABASE_URL` | `postgres://user:pass@host:5432/db` | |
-| `SAAS_ROOT_DOMAIN` | `example.com` | Subdomain tenant resolution ka base |
-| `ALLOWED_HOSTS` | `.example.com,example.com` | Wildcard ke liye **leading dot** zaroori |
+| `SAAS_ROOT_DOMAIN` | `example.com` | Base for subdomain tenant resolution |
+| `ALLOWED_HOSTS` | `.example.com,example.com` | A **leading dot** is required for the wildcard |
 | `REDIS_URL` | `redis://localhost:6379/0` | Celery broker |
 | `CELERY_TASK_ALWAYS_EAGER` | `True` (local) / `False` (prod) | |
 | `RAZORPAY_KEY_ID` / `_KEY_SECRET` / `_WEBHOOK_SECRET` | `rzp_test_...` | Subscriptions |
-| `ML_MIN_TRAINING_ROWS` | `250` | Iske pehle rule-based engine |
-| `SENTRY_DSN` | `https://...@sentry.io/...` | Khaali = Sentry off |
-| `POSTGRES_*`, `WEB_PORT` | | sirf docker-compose use karta hai |
+| `ML_MIN_TRAINING_ROWS` | `250` | Rule-based engine until then |
+| `SENTRY_DSN` | `https://...@sentry.io/...` | Empty = Sentry off |
+| `POSTGRES_*`, `WEB_PORT` | | used only by docker-compose |
 
-`.env` kabhi commit nahi hota (`.gitignore` mein hai). `.env.example` track hota hai.
+`.env` is never committed (it is in `.gitignore`). `.env.example` is tracked.
 
 ---
 
 ## Multi-tenant local testing
 
-Do tarah se test kar sakte ho:
+You can test in two ways:
 
-### A. Subdomains (production jaisa)
+### A. Subdomains (like production)
 
-`/etc/hosts` mein:
+In `/etc/hosts`:
 
 ```
 127.0.0.1   acme.localhost beta.localhost
@@ -217,7 +254,7 @@ SAAS_ROOT_DOMAIN=localhost
 ALLOWED_HOSTS=localhost,127.0.0.1,.localhost
 ```
 
-Do hospitals banao:
+Create two hospitals:
 
 ```bash
 python manage.py provision_tenant --name "Acme Hospital" --slug acme \
@@ -226,32 +263,33 @@ python manage.py provision_tenant --name "Beta Hospital" --slug beta-city \
   --admin-username admin --admin-password 'BetaPass!123'
 ```
 
-> `beta` reserved subdomain hai (SaaS ke apne pages ke liye), isliye `beta-city` use kiya.
+> `beta` is a reserved subdomain (for the SaaS's own pages), which is why
+> `beta-city` is used here.
 
-Ab `http://acme.localhost:8000` aur `http://beta.localhost:8000` — dono ka data alag,
-dono ka `admin` login alag (same username, different hospital).
+Now `http://acme.localhost:8000` and `http://beta.localhost:8000` — separate data
+for each, separate `admin` logins (same username, different hospital).
 
-### B. Session fallback (bina hosts file)
+### B. Session fallback (without a hosts file)
 
-Root domain (`http://localhost:8000`) pe login karo — middleware tenant ko session mein
-yaad rakhta hai, isliye bina subdomain ke bhi kaam chalta hai.
+Log in on the root domain (`http://localhost:8000`) — the middleware keeps the
+tenant in the session, so it works without a subdomain too.
 
-### C. API ke liye header
+### C. Header for the API
 
-Subdomain ke bina API call karni ho to header bhejo:
+To make API calls without a subdomain, send the header:
 
 ```bash
 curl -H "X-Hospital-Slug: acme" http://localhost:8000/api/patients/
 ```
 
-### Isolation khud verify karo
+### Verify isolation yourself
 
 ```bash
-python manage.py preflight --census     # har hospital ke row counts + ML readiness
+python manage.py preflight --census     # per-hospital row counts + ML readiness
 ```
 
-Ya tests: `pytest tests/test_tenant_isolation.py` (16 tests — login, ORM, forms,
-middleware, API — sab levels pe isolation check).
+Or the tests: `pytest tests/test_tenant_isolation.py` (16 tests — login, ORM,
+forms, middleware, API — isolation checked at every level).
 
 ---
 
@@ -264,40 +302,44 @@ middleware, API — sab levels pe isolation check).
 | Growth | ₹2499 | 1500 | 20 | + SMS reminders, branding |
 | Scale | ₹4999 | unlimited | 100 | + **AI no-show**, **REST API**, multi-branch |
 
-Plans seed/update: `python manage.py manage_plans` (idempotent).
+Seed/update plans: `python manage.py manage_plans` (idempotent).
 
-Gating kaise dikhta hai:
+What gating looks like:
 
-- **HTML** → warning message + `/saas/` (billing) pe redirect
+- **HTML** → warning message + redirect to `/saas/` (billing)
 - **API** → `402 Payment Required` + `{"reason": "not_in_plan", "feature": "api_access"}`
 - **Limits** (patient/staff) → create blocked, `limit_reached`
-- **Platform admin** → hamesha allowed
+- **Platform admin** → always allowed
 
-Naya feature add karna ho to `subscriptions/models.py` ke `Feature` enum mein entry daalo
-aur plan ke `features_json` mein on karo — gating code change nahi karna padta.
+To add a new feature, add an entry to the `Feature` enum in
+`subscriptions/models.py` and turn it on in the plan's `features_json` — the
+gating code does not change.
 
-Razorpay webhook: `POST /saas/webhook/` (HMAC-SHA256 verify hota hai, duplicate events
-ignore hote hain). Details: [`docs/PHASE_2_SUBSCRIPTIONS.md`](docs/PHASE_2_SUBSCRIPTIONS.md).
+Razorpay webhook: `POST /saas/webhook/` (HMAC-SHA256 signature verified,
+duplicate events ignored). Details:
+[`docs/PHASE_2_SUBSCRIPTIONS.md`](docs/PHASE_2_SUBSCRIPTIONS.md).
 
 ---
 
 ## AI no-show prediction
 
-Har appointment ka risk score (0–1) banta hai, taaki reception pehle se confirm call kare.
+Every appointment gets a risk score (0–1), so reception can confirm in advance
+with a call.
 
-| Engine | Kab |
+| Engine | When |
 |---|---|
 | **Rule-based** | Cold start — lead time, day-of-week, slot, patient history, contact quality |
-| **GradientBoosting** (scikit-learn) | `ML_MIN_TRAINING_ROWS` (default 250) labelled appointments ke baad |
+| **GradientBoosting** (scikit-learn) | after `ML_MIN_TRAINING_ROWS` (default 250) labelled appointments |
 
 ```bash
-python manage.py no_show_census                 # kitna data hai? ML ready hai?
-python manage.py score_appointments             # purane appointments backfill
-python manage.py train_no_show --hospital acme  # model train + activate
+python manage.py no_show_census                 # how much data? is ML ready?
+python manage.py score_appointments             # backfill old appointments
+python manage.py train_no_show --hospital acme  # train + activate the model
 ```
 
-Booking hote hi Celery task chalta hai aur `AppointmentRisk` row banata hai. High-risk
-appointments dashboard pe dikhte hain, poori list `/ai/no-show/` pe (Scale plan only).
+On booking, a Celery task runs and creates an `AppointmentRisk` row. High-risk
+appointments appear on the dashboard, the full list at `/ai/no-show/` (Scale plan
+only).
 
 Details: [`docs/PHASE_3_ML.md`](docs/PHASE_3_ML.md).
 
@@ -305,12 +347,13 @@ Details: [`docs/PHASE_3_ML.md`](docs/PHASE_3_ML.md).
 
 ## REST API
 
-Base: `/api/` · Auth: JWT · Docs: `/api/docs/` (Swagger) aur `/api/redoc/` ·
+Base: `/api/` · Auth: JWT · Docs: `/api/docs/` (Swagger) and `/api/redoc/` ·
 Schema: `/api/schema/`
 
-**Plan mein `api_access` feature zaroori hai** (Scale plan). Warna har data endpoint pe 402.
+**The plan must include the `api_access` feature** (Scale plan). Otherwise every
+data endpoint returns 402.
 
-### Token lo
+### Get a token
 
 ```bash
 curl -X POST http://acme.localhost:8000/api/token/ \
@@ -325,13 +368,14 @@ curl -X POST http://acme.localhost:8000/api/token/ \
 }
 ```
 
-Token **tenant-scoped** hai: `acme` ka token `beta.localhost` pe kaam nahi karega (401).
+The token is **tenant-scoped**: an `acme` token will not work on
+`beta.localhost` (401).
 
 ### Endpoints
 
 | Method | Path | Access |
 |---|---|---|
-| POST | `/api/token/`, `/api/token/refresh/`, `/api/token/verify/` | public (tenant zaroori) |
+| POST | `/api/token/`, `/api/token/refresh/`, `/api/token/verify/` | public (tenant required) |
 | GET | `/api/` | public — endpoint discovery |
 | GET | `/api/me/`, `/api/hospital/`, `/api/subscription/` | any staff |
 | GET | `/api/features/?feature=api_access` | any staff |
@@ -346,8 +390,8 @@ Token **tenant-scoped** hai: `acme` ka token `beta.localhost` pe kaam nahi kareg
 | GET | `/api/staff/` | ADMIN |
 | GET | `/api/risks/`, `/api/risks/high/` | any staff |
 
-Sab list endpoints pe `?search=`, `?ordering=`, `?page=`, `?page_size=` (max 200) aur
-declared exact-match filters (jaise `?status=PAID`, `?doctor=3`) chalte hain.
+On all list endpoints, `?search=`, `?ordering=`, `?page=`, `?page_size=` (max
+200) and declared exact-match filters (like `?status=PAID`, `?doctor=3`) work.
 
 ### Example
 
@@ -364,26 +408,26 @@ Details: [`docs/PHASE_4_API.md`](docs/PHASE_4_API.md).
 
 ## Operations
 
-### Deploy / upgrade ka standard sequence
+### Standard deploy / upgrade sequence
 
 ```bash
-./deploy/backup_db.sh --tag pre-deploy        # 1. backup (wajib)
-python manage.py preflight                    # 2. gate - fail ho to ruk jao
+./deploy/backup_db.sh --tag pre-deploy        # 1. backup (mandatory)
+python manage.py preflight                    # 2. gate - stop if it fails
 python manage.py migrate --noinput            # 3. schema
-python manage.py manage_plans                 # 4. plans seed/update (idempotent)
-python manage.py preflight --census           # 5. data integrity verify
+python manage.py manage_plans                 # 4. seed/update plans (idempotent)
+python manage.py preflight --census           # 5. verify data integrity
 ```
 
-`preflight` check karta hai: Python/Django version, SECRET_KEY, `.env`, secrets repo mein
-to nahi, DB connectivity, pending migrations. `--census` har hospital ke row counts,
-subscription status aur ML readiness dikhata hai.
+`preflight` checks: Python/Django version, SECRET_KEY, `.env`, secrets in the
+repo, DB connectivity, pending migrations. `--census` shows per-hospital row
+counts, subscription status and ML readiness.
 
 ### Backup / restore
 
 ```bash
 ./deploy/backup_db.sh --tag weekly            # pg_dump custom format -> deploy/backups/
 ./deploy/backup_db.sh list
-./deploy/backup_db.sh restore deploy/backups/xxx.dump    # 'RESTORE' type karna padta hai
+./deploy/backup_db.sh restore deploy/backups/xxx.dump    # you must type 'RESTORE'
 ```
 
 ### Celery worker
@@ -399,14 +443,15 @@ celery -A hospital_system call hospital_system.debug_ping   # connectivity check
 python manage.py train_no_show --hospital acme
 ```
 
-> **Note:** hosted platforms (Render/Heroku) ka filesystem ephemeral hota hai — deploy ke
-> baad model files gayab ho jaati hain. Ya to release command mein retrain karo, ya
-> `ml_models/` ko persistent volume / object storage banao (docker-compose mein volume hai).
+> **Note:** hosted platforms (Render/Heroku) have an ephemeral filesystem —
+> model files disappear after a deploy. Either retrain in the release command,
+> or make `ml_models/` a persistent volume / object storage (docker-compose
+> already has a volume).
 
 ### Sentry
 
-`SENTRY_DSN` set karte hi Django + Celery integration on ho jaata hai.
-`send_default_pii=False` hai — patient/staff ka PII Sentry mein nahi jaata.
+Setting `SENTRY_DSN` enables the Django + Celery integration.
+`send_default_pii=False` — patient/staff PII never goes to Sentry.
 
 ---
 
@@ -414,27 +459,28 @@ python manage.py train_no_show --hospital acme
 
 ```bash
 pytest                                        # 166 tests
-pytest --cov=. --cov-fail-under=70            # coverage gate (abhi ~83%)
-pytest tests/test_tenant_isolation.py         # sirf isolation
-pytest tests/test_api.py                      # sirf API
+pytest --cov=. --cov-fail-under=70            # coverage gate (currently ~83%)
+pytest tests/test_tenant_isolation.py         # isolation only
+pytest tests/test_api.py                      # API only
 ```
 
-| Suite | Tests | Kya cover karta hai |
+| Suite | Tests | What it covers |
 |---|---|---|
 | `test_tenant_isolation.py` | 16 | login, ORM, forms, middleware, cross-tenant 404 |
 | `test_core_flows.py` | 12 | booking, billing + PDF, RBAC, staff/doctor create form |
-| `test_data_backfill.py` | 8 | purana data → Default Hospital (migration rewind) |
+| `test_data_backfill.py` | 8 | old data → Default Hospital (migration rewind) |
 | `test_subscriptions.py` | 45 | plans, Razorpay webhook, gating |
 | `test_no_show.py` | 35 | rules, features/leakage, Celery, training, commands |
 | `test_api.py` | 46 | JWT, RBAC, tenant isolation, gating, Swagger |
-| `test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) settings ko todne na paayein |
+| `test_settings_blank_env.py` | 4 | blank `.env` values (DATABASE_URL / ALLOWED_HOSTS) must not break settings |
 
-CI (`.github/workflows/ci.yml`) har push pe: Django checks → pending-migration check →
-pytest with coverage gate → OpenAPI schema validation → Docker image build + smoke test.
+CI (`.github/workflows/ci.yml`) on every push: Django checks → pending-migration
+check → pytest with coverage gate → OpenAPI schema validation → Docker image
+build + smoke test.
 
-pytest **Python 3.11 (Django 5.2 LTS) aur 3.12 (Django 6)** — dono matrix mein,
-Postgres 16 + Redis service containers ke against chalta hai. Latest run:
-166 passed / 84% coverage dono Python versions pe.
+pytest runs in a **Python 3.11 (Django 5.2 LTS) and 3.12 (Django 6)** matrix
+against Postgres 16 + Redis service containers. Latest run: 166 passed / 84%
+coverage on both Python versions.
 
 ---
 
@@ -447,17 +493,17 @@ docker compose up -d --build
 docker compose logs -f web celery
 ```
 
-Reverse proxy (nginx/caddy) se `*.example.com` ko `web:8000` pe bhejo, aur DNS wildcard
-(`*.example.com`) set karo.
+Point `*.example.com` at `web:8000` from a reverse proxy (nginx/caddy), and set
+the DNS wildcard (`*.example.com`).
 
 ### Render / Heroku
 
 - Build: `pip install -r requirements.txt && python manage.py collectstatic --noinput`
 - Start: `gunicorn hospital_system.wsgi:application --bind 0.0.0.0:$PORT`
 - Release: `python manage.py migrate --noinput && python manage.py manage_plans`
-- Ek **Redis** instance chahiye (Celery broker) aur ek **Celery worker** service
+- You need a **Redis** instance (Celery broker) and a **Celery worker** service
 - `SAAS_ROOT_DOMAIN=example.com`, `ALLOWED_HOSTS=.example.com,example.com`
-- ML models: ephemeral filesystem — release command mein `train_no_show` chalao
+- ML models: ephemeral filesystem — run `train_no_show` in the release command
 
 Details: [`DEPLOYMENT.md`](DEPLOYMENT.md).
 
@@ -491,20 +537,20 @@ Docs index: [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md) ·
 
 ## Troubleshooting
 
-| Problem | Wajah / fix |
+| Problem | Cause / fix |
 |---|---|
-| `DisallowedHost` (400) | `ALLOWED_HOSTS` mein `.example.com` (leading dot) daalo |
-| Pehli request pe 500, traceback ajeeb | URLconf lazy import + tenant-scoped manager. `wsgi.py`/`asgi.py` pehle hi URLconf preload karte hain — custom entrypoint use kar rahe ho to wahi karo |
-| `ImproperlyConfigured: No tenant is active` | Request ke bahar `Model.objects` use ho raha hai. `with tenant_context(hospital):` use karo |
-| `/api/...` pe 401 "Tenant resolve nahi hua" | Subdomain use karo ya `X-Hospital-Slug` header |
-| API pe 402 `not_in_plan` | Plan mein `api_access` nahi — `assign_plan --plan scale` |
-| Risk score nahi ban raha | Celery worker nahi chal raha, ya `CELERY_TASK_ALWAYS_EAGER=True` nahi hai. `manage.py score_appointments` se backfill karo |
-| `train_no_show` kehta hai "COLD START" | Normal — `ML_MIN_TRAINING_ROWS` se kam data hai. Rule-based engine chalta rahega |
-| Username globally unique error | `accounts` migrations apply nahi hue — `manage.py migrate` |
-| Razorpay webhook 400 | `RAZORPAY_WEBHOOK_SECRET` set nahi, ya raw body ke bajaye parsed JSON pe signature verify ho raha hai |
+| `DisallowedHost` (400) | Add `.example.com` (leading dot) to `ALLOWED_HOSTS` |
+| 500 on the first request, weird traceback | URLconf lazy import + tenant-scoped manager. `wsgi.py`/`asgi.py` already preload the URLconf — do the same if you use a custom entrypoint |
+| `ImproperlyConfigured: No tenant is active` | `Model.objects` is being used outside a request. Use `with tenant_context(hospital):` |
+| 401 "Tenant could not be resolved" on `/api/...` | Use a subdomain or the `X-Hospital-Slug` header |
+| 402 `not_in_plan` on the API | The plan has no `api_access` — `assign_plan --plan scale` |
+| Risk score not being created | The Celery worker is not running, or `CELERY_TASK_ALWAYS_EAGER=True` is not set. Backfill with `manage.py score_appointments` |
+| `train_no_show` says "COLD START" | Normal — less data than `ML_MIN_TRAINING_ROWS`. The rule-based engine keeps working |
+| Username globally unique error | The `accounts` migrations are not applied — `manage.py migrate` |
+| Razorpay webhook 400 | `RAZORPAY_WEBHOOK_SECRET` is not set, or the signature is verified against parsed JSON instead of the raw body |
 
 ---
 
 ## License
 
-Private / proprietary — abhi koi open-source license nahi hai.
+Private / proprietary — there is no open-source license yet.

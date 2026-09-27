@@ -1,7 +1,7 @@
 """
-Tenant model - ek Hospital = ek customer = ek isolated data set.
+Tenant model - one Hospital = one customer = one isolated data set.
 
-Subdomain scheme (Phase 1 mein chosen):
+Subdomain scheme (chosen in Phase 1):
     acme.hospitalsaas.in  ->  Hospital(slug='acme')
 """
 from django.conf import settings
@@ -20,18 +20,18 @@ class HospitalManager(models.Manager):
 
 class Hospital(models.Model):
     """
-    NOTE: Hospital khud tenant nahi hai (iska apna manager tenant-scoped nahi),
-    warna "kaunsa hospital exist karta hai" resolve hi nahi ho paata.
+    NOTE: Hospital is not itself a tenant (its own manager is not
+    tenant-scoped), otherwise "which hospital exists" could not be resolved.
     """
 
-    name = models.CharField(max_length=150, help_text="Hospital ka display naam")
+    name = models.CharField(max_length=150, help_text="Display name of the hospital")
     slug = models.SlugField(
         max_length=63, unique=True, db_index=True,
-        help_text="Subdomain - acme.example.com ke liye 'acme'. Lowercase, no spaces.",
+        help_text="Subdomain - 'acme' for acme.example.com. Lowercase, no spaces.",
     )
     is_active = models.BooleanField(
         default=True,
-        help_text="False = subscription lapse / suspend. Login block ho jaata hai, data safe rehta hai.",
+        help_text="False = subscription lapse / suspended. Login is blocked, data stays safe.",
     )
     contact_email = models.EmailField(blank=True)
     contact_phone = models.CharField(max_length=15, blank=True)
@@ -52,14 +52,14 @@ class Hospital(models.Model):
 
         slug = slugify(self.slug or self.name)
         if not slug:
-            raise ValidationError("Slug ya name zaroori hai.")
+            raise ValidationError("Slug or name is required.")
         if slug in RESERVED_SUBDOMAINS:
             raise ValidationError(
-                f"'{slug}' reserved hai (platform ke apne pages ke liye). Doosra slug chuno."
+                f"'{slug}' is reserved (for the platform's own pages). Choose another slug."
             )
 
     def save(self, *args, **kwargs):
-        # slug normalize + reserved check har save pe (shell se banaya ho ya form se)
+        # slug normalize + reserved check on every save (whether created from the shell or a form)
         self.clean()
         self.slug = slugify(self.slug or self.name)
         super().save(*args, **kwargs)
@@ -78,8 +78,8 @@ class Hospital(models.Model):
     @classmethod
     def get_or_create_default(cls):
         """
-        Phase 1 data migration isi ko call karti hai - purane saare rows ko
-        assign karne ke liye ek 'Default Hospital' chahiye. Idempotent hai.
+        The Phase 1 data migration calls this - a 'Default Hospital' is needed
+        to assign all pre-existing rows to. It is idempotent.
         """
         slug = getattr(settings, "DEFAULT_HOSPITAL_SLUG", "default")
         name = getattr(settings, "DEFAULT_HOSPITAL_NAME", "Default Hospital")
@@ -89,7 +89,7 @@ class Hospital(models.Model):
         return hospital
 
 
-# In slugs pe koi hospital register nahi ho sakta - platform ke apne pages ke liye reserved
+# No hospital can register these slugs - reserved for the platform's own pages
 RESERVED_SUBDOMAINS = {
     "www", "app", "api", "admin", "mail", "smtp", "ftp", "blog", "status",
     "help", "support", "docs", "static", "media", "cdn", "assets", "test",
@@ -100,8 +100,8 @@ RESERVED_SUBDOMAINS = {
 
 class TenantModel(models.Model):
     """
-    Abstract base - har multi-tenant model ise inherit karta hai.
-    `hospital` FK yahan define hai taaki sab models ka behaviour ek jaisa rahe.
+    Abstract base - every multi-tenant model inherits from it.
+    The `hospital` FK is defined here so all models behave the same way.
     """
 
     hospital = models.ForeignKey(
@@ -109,7 +109,7 @@ class TenantModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(app_label)s_%(class)s_set",
         db_index=True,
-        help_text="Tenant - kaunsa hospital yeh record own karta hai",
+        help_text="Tenant - which hospital owns this record",
     )
 
     objects = TenantManager()
@@ -120,9 +120,9 @@ class TenantModel(models.Model):
 
     def ensure_hospital(self):
         """
-        hospital set nahi hai to current tenant se le lo.
-        Model.save() isse SABSE PEHLE call karta hai - isse pehle full_clean()
-        chalaya to 'hospital cannot be null' ValidationError aa jaata hai.
+        If hospital is not set, take it from the current tenant.
+        Model.save() calls this FIRST - if full_clean() runs before it, the
+        'hospital cannot be null' ValidationError is raised.
         """
         if self.hospital_id is None:
             hospital = context.get_current_hospital()
@@ -130,9 +130,9 @@ class TenantModel(models.Model):
                 self.hospital = hospital
             elif not context.is_tenant_enforced():
                 raise ImproperlyConfigured(
-                    f"{self.__class__.__name__} save ho raha hai bina hospital ke aur koi "
-                    "tenant active nahi hai. `hospital=` explicitly do ya "
-                    "`with tenant_context(hospital):` ke andar save karo."
+                    f"{self.__class__.__name__} is being saved without a hospital and no "
+                    "tenant is active. Pass `hospital=` explicitly or save inside "
+                    "`with tenant_context(hospital):`."
                 )
         return self.hospital
 

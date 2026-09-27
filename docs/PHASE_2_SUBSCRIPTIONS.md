@@ -1,29 +1,30 @@
 # Phase 2 — Subscription & Billing (Razorpay recurring)
 
 `subscriptions` app: `Plan` (platform catalog) + `Subscription` (per-hospital) +
-`PaymentEvent` (webhook audit trail). Patient-facing `billing` app se bilkul alag —
-yahan **hospital khud customer** hai.
+`PaymentEvent` (webhook audit trail). Completely separate from the patient-facing
+`billing` app — here **the hospital itself is the customer**.
 
-> **Keys kabhi code mein nahi.** `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` /
-> `RAZORPAY_WEBHOOK_SECRET` sirf `.env` (local) ya Render Environment (production) se.
+> **Keys are never in the code.** `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` /
+> `RAZORPAY_WEBHOOK_SECRET` come only from `.env` (local) or Render Environment
+> (production).
 
 ---
 
-## 2.1 Setup (ek baar)
+## 2.1 Setup (one-time)
 
 ```bash
-# 1. Plans seed karo (idempotent)
+# 1. Seed the plans (idempotent)
 python manage.py manage_plans
 python manage.py manage_plans --list
 
-# 2. Kisi hospital ko plan do (local testing / manual onboarding)
+# 2. Assign a plan to a hospital (local testing / manual onboarding)
 python manage.py assign_plan --hospital acme --plan growth --trial-days 14
 python manage.py assign_plan --hospital acme --plan scale --days 30
 
-# 3. Razorpay pe plans banao (plan_id apne aap DB mein store ho jaata hai)
+# 3. Create the plans on Razorpay (plan_id is stored in the DB automatically)
 python manage.py manage_plans --ensure-razorpay
 
-# 4. Reconciliation cron (webhook miss ho jaaye to)
+# 4. Reconciliation cron (in case a webhook is missed)
 */15 * * * * python manage.py sync_subscriptions
 ```
 
@@ -36,27 +37,28 @@ RAZORPAY_WEBHOOK_URL=https://<domain>/saas/webhook/
 SUBSCRIPTION_GRACE_DAYS=3
 ```
 
-Razorpay Dashboard mein webhook add karte waqt URL `https://<tumhara-domain>/saas/webhook/`
-dena (**root domain, subdomain nahi** — isliye yeh path `TENANT_EXEMPT_PATHS` mein hai)
-aur events select karo: `subscription.charged`, `subscription.authenticated`,
-`subscription.halted`, `subscription.cancelled`, `subscription.completed`,
-`subscription.paused`, `payment.failed`.
+When adding the webhook in the Razorpay Dashboard, use the URL
+`https://<your-domain>/saas/webhook/` (**the root domain, not a subdomain** —
+that is why this path is in `TENANT_EXEMPT_PATHS`) and select these events:
+`subscription.charged`, `subscription.authenticated`, `subscription.halted`,
+`subscription.cancelled`, `subscription.completed`, `subscription.paused`,
+`payment.failed`.
 
 ---
 
 ## 2.2 Models
 
-### `Plan` (tenant-scoped NAHI)
+### `Plan` (NOT tenant-scoped)
 `name`, `code` (unique slug), `price`, `currency`, `interval` (monthly/yearly),
 `patient_limit`, `staff_limit`, `appointment_limit`, `features_json`,
 `razorpay_plan_id`, `trial_days`, `is_active`, `sort_order`.
 
 - `patient_limit = -1` → unlimited
-- `features_json` mein unknown key daalne pe `clean()` ValidationError deta hai
-- `price_paise` → Razorpay ko smallest unit mein bhejne ke liye
+- Adding an unknown key to `features_json` raises a ValidationError in `clean()`
+- `price_paise` → to send amounts to Razorpay in the smallest currency unit
 
-Naya feature add karna ho to sirf `Feature` enum + plan ke `features_json` mein key
-daalo — gating code change nahi karna padta.
+To add a new feature, just add the `Feature` enum + a key in the plan's
+`features_json` — the gating code does not change.
 
 ### `Subscription` (OneToOne with Hospital)
 `plan`, `status`, `current_period_start/end`, `cancel_at_period_end`, `trial_ends_at`,
@@ -65,15 +67,16 @@ daalo — gating code change nahi karna padta.
 
 Statuses: `TRIALING / ACTIVE / PAST_DUE / PENDING / CANCELLED / EXPIRED / HALTED`.
 
-**Access ka rule** (`is_accessible`):
+**Access rule** (`is_accessible`):
 - `TRIALING`, `ACTIVE`, `PENDING` → access
-- `PAST_DUE` → **grace period (`SUBSCRIPTION_GRACE_DAYS`, default 3) tak access**,
-  uske baad block. Ek failed payment se hospital ka kaam band karna safe nahi.
-- `CANCELLED / EXPIRED / HALTED` → block
+- `PAST_DUE` → **access during the grace period (`SUBSCRIPTION_GRACE_DAYS`,
+  default 3)**, then blocked. Stopping a hospital's work over a single failed
+  payment is not safe.
+- `CANCELLED / EXPIRED / HALTED` → blocked
 
 ### `PaymentEvent`
-`event_id` **unique** → Razorpay ki duplicate delivery dobara process nahi hoti.
-Signature verify hone ke BAAD hi likha jaata hai.
+`event_id` is **unique** → duplicate Razorpay deliveries are not processed twice.
+It is written only AFTER the signature verifies.
 
 ---
 
@@ -87,24 +90,24 @@ from subscriptions.gating import feature_required, check_feature, check_limit
 def no_show_report(request): ...
 ```
 
-Ya CBV mein:
+Or in a CBV:
 ```python
 class NoShowView(FeatureRequiredMixin, View):
     required_feature = "ai_no_show"
 ```
 
-`check_feature(request, feature)` → `(allowed, reason)` jahan reason ∈
+`check_feature(request, feature)` → `(allowed, reason)` where reason ∈
 `no_subscription | subscription_cancelled | subscription_expired | subscription_halted |
 subscription_past_due | not_in_plan | allowed`.
 
-Deny hone pe:
-- normal page → warning message + `/saas/` (billing page) pe redirect
+On deny:
+- normal page → warning message + redirect to `/saas/` (billing page)
 - API (`/api/...`) → **402 JSON** `{"detail": ..., "reason": ..., "feature": ...}`
 
-**Platform super-admin (`is_platform_admin=True`) hamesha allowed** — SaaS operator
-ko testing ke liye.
+**Platform super-admins (`is_platform_admin=True`) are always allowed** — for the
+SaaS operator to test.
 
-Templates mein (context processor se):
+In templates (via the context processor):
 ```django
 {% if has_feature.ai_no_show %}...{% endif %}
 {{ current_plan.name }}
@@ -114,7 +117,7 @@ Templates mein (context processor se):
 - `patients/views.py:patient_create` → `patient_limit`
 - `accounts/views.py:staff_create` → `staff_limit`
 
-Limit hit hone pe error message + billing page pe redirect.
+When a limit is hit: error message + redirect to the billing page.
 
 ---
 
@@ -122,21 +125,23 @@ Limit hit hone pe error message + billing page pe redirect.
 
 `subscriptions/razorpay_service.py`:
 
-| Function | Kaam |
+| Function | Purpose |
 |---|---|
-| `is_configured()` / `get_client()` | Keys check, SDK client. Na ho to `RazorpayNotConfigured` (crash nahi) |
-| `ensure_plan(plan)` | Razorpay pe plan banao, `razorpay_plan_id` store karo (idempotent) |
+| `is_configured()` / `get_client()` | Key check, SDK client. If missing → `RazorpayNotConfigured` (no crash) |
+| `ensure_plan(plan)` | Create the plan on Razorpay, store `razorpay_plan_id` (idempotent) |
 | `create_customer(hospital)` / `create_subscription(sub)` | Recurring subscription entity |
-| `checkout_payload(sub)` | Razorpay.js ke liye data (**public key only**) |
+| `checkout_payload(sub)` | Data for Razorpay.js (**public key only**) |
 | `verify_checkout_signature(...)` | `HMAC_SHA256(key_secret, "{sub_id}|{pay_id}")` |
 | `verify_webhook_signature(raw_body, sig)` | `HMAC_SHA256(webhook_secret, raw_body)`, **timing-safe compare** |
 | `fetch_subscription` / `cancel_subscription` | Sync/cancel |
 
-Webhook signature **khud** verify hota hai (SDK pe depend nahi) — security boundary
-hai aur isliye unit-testable hai. `request.body` ke **exact bytes** use hote hain.
+The webhook signature is verified **ourselves** (no SDK dependency) — it is a
+security boundary and that is why it is unit-testable. The **exact bytes** of
+`request.body` are used.
 
 Webhook order (views.py): signature verify → `PaymentEvent` (duplicate guard) →
-handler → 200. Handler fail ho to 500 + `PaymentEvent.error` mein reason store.
+handler → 200. If the handler fails → 500 + the reason stored in
+`PaymentEvent.error`.
 
 Flow: `/saas/` (plan catalog) → `/saas/checkout/<plan_code>/` → Razorpay.js →
 `POST /saas/checkout/callback/` (signature verify) → `mark_active()`.
@@ -145,7 +150,7 @@ Flow: `/saas/` (plan catalog) → `/saas/checkout/<plan_code>/` → Razorpay.js 
 
 ## 2.5 Files touched
 
-**Naye (19):** `subscriptions/` app (16 files: `__init__`, `apps`, `models`,
+**New (19):** `subscriptions/` app (16 files: `__init__`, `apps`, `models`,
 `razorpay_service`, `gating`, `context_processors`, `views`, `urls`, `admin`,
 `migrations/0001_initial`, 3 management commands + `__init__`s),
 `templates/subscriptions/billing.html`, `templates/subscriptions/checkout.html`,
@@ -153,94 +158,96 @@ Flow: `/saas/` (plan catalog) → `/saas/checkout/<plan_code>/` → Razorpay.js 
 
 **Modified (11):** `hospital_system/settings.py` (app, context processor, Razorpay
 settings, `/saas/webhook/` exempt), `hospital_system/urls.py`,
-`hospital_system/wsgi.py` + `asgi.py` (URLconf preload — neeche dekho),
+`hospital_system/wsgi.py` + `asgi.py` (URLconf preload — see below),
 `patients/views.py` + `accounts/views.py` (limits), `templates/base.html` (Plan nav
 link + badge), `requirements.txt` (`razorpay==2.0.1`), `.env.example`,
 `core/management/commands/preflight.py` (subscription census).
 
-**Migration:** `subscriptions.0001_initial` (naya app, koi existing table touch nahi hui)
-→ `python manage.py migrate` safe hai, koi data risk nahi.
+**Migration:** `subscriptions.0001_initial` (new app, no existing table touched)
+→ `python manage.py migrate` is safe, no data risk.
 
 ---
 
-## 2.6 Verify (is sandbox mein, Django 5.2.17)
+## 2.6 Verification (in this sandbox, Django 5.2.17)
 
 ```
 $ pytest tests/ -q                     →  78 passed
 $ pytest tests/ --cov=. -q             →  TOTAL 77%
 $ manage.py migrate (fresh)            →  subscriptions.0001_initial OK
 $ manage.py makemigrations --check     →  No changes detected
-$ manage.py manage_plans               →  4 plans created; --list se verify
+$ manage.py manage_plans               →  4 plans created; verified with --list
 $ manage.py provision_tenant + assign_plan --plan growth --trial-days 14
   → Subscription: plan=Growth status=TRIALING accessible=True days=13
-    has_feature(ai_no_show)=False, has_feature(sms_reminders)=True   (plan ke hisaab se sahi)
+    has_feature(ai_no_show)=False, has_feature(sms_reminders)=True   (correct for the plan)
 $ manage.py preflight --census         →  "subscriptions: 1/2 hospitals accessible"
 ```
 
-Phase 2 ke 45 naye tests: Plan features/limits, subscription accessibility + grace
+Phase 2's 45 new tests: Plan features/limits, subscription accessibility + grace
 period, gating (5 cases), gated views (patient create blocked/allowed/limit),
-billing page render + **tenant isolation of billing page**, Razorpay config,
+billing page render + **tenant isolation of the billing page**, Razorpay config,
 **signature verify/tamper/missing**, webhook 8 events + duplicate + unknown + 404,
 3 management commands.
 
 ---
 
-## 2.7 Bug jo Phase 2 tests ne pakda (Phase 1 ka, production-breaking)
+## 2.7 A bug the Phase 2 tests caught (from Phase 1, production-breaking)
 
-**URLconf lazy import** — Django URLconf ko pehli request pe import karta hai. Us
-waqt `ModelForm` ki metaclass FK ka tenant-scoped default manager evaluate karti
-hai, tenant active nahi hota → `ImproperlyConfigured`. Matlab **production mein
-pehli request 500** deti, aur 500 error page bhi fail hota (kyunki woh bhi URLconf
-resolve karta hai).
+**URLconf lazy import** — Django imports the URLconf on the first request. At
+that point `ModelForm`'s metaclass evaluates the FK's tenant-scoped default
+manager, no tenant is active → `ImproperlyConfigured`. That means **in
+production the first request returned a 500**, and the 500 error page failed too
+(because it also resolves the URLconf).
 
-Fix: `wsgi.py` / `asgi.py` mein `get_resolver().url_patterns` se **startup pe
-preload**, aur tests mein session-scoped fixture. Ab yeh problem deploy se pehle
-startup pe hi dikhegi.
+Fix: **preload at startup** in `wsgi.py` / `asgi.py` via
+`get_resolver().url_patterns`, plus a session-scoped fixture in tests. Now this
+problem shows up at startup before deploy.
 
-Do chhote bugs: `django.utils.timezone.utc` Django 5.0 se removed hai
-(`datetime.timezone.utc` use kiya), aur webhook handler ka exception test mein
-500 ke peeche chhupa hua tha.
-
----
-
-## 2.8 Jo verify NAHI ho saka
-
-1. **Asli Razorpay API calls test nahi hue** — test-mode keys chahiye aur network
-   sandbox se bahar. Signature logic, webhook handlers, status mapping sab local
-   (HMAC khud compute karke) verify hue hain.
-2. **Django 6 / Python 3.12 pe nahi chala** (sandbox 3.11.2).
-3. **PostgreSQL pe nahi chala** — SQLite only.
-4. **Razorpay.js checkout browser flow** manually test karna padega.
+Two smaller bugs: `django.utils.timezone.utc` was removed in Django 5.0 (switched
+to `datetime.timezone.utc`), and the webhook handler's exception was hidden
+behind the 500 in tests.
 
 ---
 
-## 2.9 Manually kya test karna hai
+## 2.8 What could NOT be verified
+
+1. **Real Razorpay API calls were not tested** — test-mode keys are required and
+   the network is outside the sandbox. Signature logic, webhook handlers, and
+   status mapping were all verified locally (by computing HMACs ourselves).
+2. **Not run on Django 6 / Python 3.12** (sandbox has 3.11.2).
+3. **Not run on PostgreSQL** — SQLite only.
+4. **The Razorpay.js checkout browser flow** must be tested manually.
+
+---
+
+## 2.9 What to test manually
 
 ```bash
 python manage.py manage_plans
 python manage.py assign_plan --hospital default --plan starter
-# http://default.localhost:8000/saas/  -> current plan + usage + catalog dikhega
+# http://default.localhost:8000/saas/  -> shows current plan + usage + catalog
 
 # Limits:
 python manage.py assign_plan --hospital default --plan free      # patient_limit=50
-#   /patients/add/  -> 50 ke baad "plan ki limit" message + /saas/ pe redirect
+#   /patients/add/  -> after 50, a "plan limit" message + redirect to /saas/
 
-# Razorpay (test mode) ke saath:
-#   .env mein test keys daalo -> /saas/checkout/starter/ -> Razorpay popup
-#   test card: 4111 1111 1111 1111, koi future expiry, CVV 123, OTP 1111
-#   Dashboard > Webhooks mein http://<tunnel>/saas/webhook/ add karo
-#   (local ke liye ngrok: ngrok http 8000)
+# With Razorpay (test mode):
+#   put test keys in .env -> /saas/checkout/starter/ -> Razorpay popup
+#   test card: 4111 1111 1111 1111, any future expiry, CVV 123, OTP 1111
+#   add http://<tunnel>/saas/webhook/ under Dashboard > Webhooks
+#   (ngrok for local: ngrok http 8000)
 ```
 
-Regression: purane saare tests (33) abhi bhi pass hain — RBAC, booking, PDF,
-tenant isolation kuch nahi toota.
+Regression: all the old tests (33) still pass — RBAC, booking, PDF, tenant
+isolation, nothing broke.
 
 ---
 
-## 2.10 Phase 3 ke liye notes
+## 2.10 Notes for Phase 3
 
-- `Feature.AI_NO_SHOW` abhi **sirf `scale` plan** mein on hai. Phase 3 ka no-show
-  prediction view `@feature_required("ai_no_show")` se gate hoga.
-- `Feature.API_ACCESS` Phase 4 (DRF) ke liye reserved hai.
-- Celery task mein tenant context manually set karna hoga:
-  `with tenant_context(appointment.hospital): ...` (middleware nahi chalta wahan).
+- `Feature.AI_NO_SHOW` is currently enabled **only in the `scale` plan**. The
+  Phase 3 no-show prediction view will be gated with
+  `@feature_required("ai_no_show")`.
+- `Feature.API_ACCESS` is reserved for Phase 4 (DRF).
+- Celery tasks must set the tenant context manually:
+  `with tenant_context(appointment.hospital): ...` (middleware does not run
+  there).

@@ -1,11 +1,11 @@
 """
 Phase 3 - No-show prediction tests.
 
-Cover hota hai:
-  * rule-based (cold start) engine ka behaviour
-  * feature extraction + leakage guard (current appointment history mein nahi ginta)
-  * Celery task (eager) appointment create pe risk bana deta hai
-  * train -> joblib artifact -> sklearn engine pe switch
+Covered here:
+  * the behaviour of the rule-based (cold start) engine
+  * feature extraction + leakage guard (the current appointment is not counted in history)
+  * the Celery task (eager) creates the risk on appointment creation
+  * train -> joblib artifact -> switch to the sklearn engine
   * feature gating (ai_no_show) + tenant isolation
 """
 import datetime as dt
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.django_db
 
 
 def _feat(**overrides):
-    """Poora FEATURE_NAMES dict, sirf diye gaye keys override - rules unit-test ke liye."""
+    """The full FEATURE_NAMES dict, only the given keys overridden - for the rules unit-test."""
     base = {name: 0 for name in FEATURE_NAMES}
     base.update({
         "lead_days": 7, "lead_hours": 168, "day_of_week": 2, "hour_of_day": 10,
@@ -56,7 +56,7 @@ def patient(hospital_a, make_patient):
 
 
 def make_appt(patient, doctor, *, days=7, hour=10, weekday=None, status=None, reason="Fever"):
-    """Ek appointment banao. `weekday` do to us din pe shift ho jaata hai."""
+    """Create one appointment. Pass `weekday` to shift it to that day."""
     date = timezone.now().date() + dt.timedelta(days=days)
     if weekday is not None:
         while date.weekday() != weekday:
@@ -113,15 +113,15 @@ class TestFeatures:
         assert set(feats) == set(FEATURE_NAMES)
 
     def test_no_leakage_from_current_appointment(self, patient, doctor):
-        """Current appointment khud patient history mein count NAHI hona chahiye."""
+        """The current appointment must NOT count in the patient history itself."""
         with tenant_scope(patient.hospital):
-            # purani history PAST mein (negative days) - warna woh "upcoming" ke
-            # baad ki date maani jaayegi aur history features 0 rahenge
+            # old history in the PAST (negative days) - otherwise it would be
+            # treated as a date after "upcoming" and the history features would be 0
             make_appt(patient, doctor, days=-30, status=Appointment.Status.NO_SHOW)
             make_appt(patient, doctor, days=-25, status=Appointment.Status.COMPLETED)
             upcoming = make_appt(patient, doctor, days=5)
             feats = extract_for_appointment(upcoming)
-        # 2 purane appointments hi dikhne chahiye, upcoming (SCHEDULED) nahi
+        # only the 2 old appointments should appear, not the upcoming (SCHEDULED) one
         assert feats["patient_prev_appts"] == 2
         assert feats["patient_prev_no_shows"] == 1
         assert feats["is_first_visit"] == 0
@@ -138,7 +138,7 @@ class TestFeatures:
 # ------------------------------------------------------- Celery task path
 class TestAsyncScoring:
     def test_risk_row_created_on_appointment_create(self, patient, doctor):
-        """post_save signal -> celery task (eager) -> AppointmentRisk bana."""
+        """post_save signal -> celery task (eager) -> AppointmentRisk is created."""
         with tenant_scope(patient.hospital):
             appt = make_appt(patient, doctor, days=10)
             appt.refresh_from_db()
@@ -180,7 +180,7 @@ class TestAsyncScoring:
 # ------------------------------------------------------- training / sklearn
 class TestTraining:
     def _seed_history(self, patient, doctor, n=60):
-        """Synthetic pattern: Monday appointments zyada no-show hote hain."""
+        """Synthetic pattern: Monday appointments have more no-shows."""
         import random
 
         rnd = random.Random(11)
@@ -221,7 +221,7 @@ class TestTraining:
             assert artifact.hospital == patient.hospital
             assert len(artifact.feature_importances) == len(FEATURE_NAMES)
 
-            # ab prediction trained model se honi chahiye
+            # now the prediction should come from the trained model
             predictor = get_predictor(patient.hospital)
             assert predictor is not None and predictor.version == result["version"]
 
@@ -243,8 +243,8 @@ class TestTraining:
             second = train(hospital=patient.hospital, min_rows=40)
             assert second["ok"] is True
             assert NoShowModelArtifact.objects.filter(is_active=True).count() == 1
-            assert not first_path.exists()  # purani file cleanup ho gayi
-            # global model na hone par bhi hospital-specific hi pick ho
+            assert not first_path.exists()  # the old file was cleaned up
+            # even without a global model, the hospital-specific one is picked
             assert get_predictor(patient.hospital).version == second["version"]
 
     def test_global_model_fallback_when_no_hospital_model(self, patient, doctor):
@@ -327,7 +327,7 @@ class TestDashboard:
         assert b"High Risk Appointments" in resp.content
 
     def test_navbar_link_follows_plan(self, hospital_a, scale_plan, free_plan, make_user):
-        """feature_flags context processor se navbar ka AI link aata/jaata hai."""
+        """The navbar AI link comes and goes with the feature_flags context processor."""
         admin = make_user(hospital_a, username="nav.ai", role=User.Role.ADMIN)
         sub = subscribe(hospital_a, scale_plan)
 
@@ -392,7 +392,7 @@ class TestCommands:
         from django.core.management import call_command
 
         call_command("train_no_show", "--hospital", patient.hospital.slug, "--min-rows", "5000")
-        assert "Rule-based engine" in capsys.readouterr().out
+        assert "The rule-based engine" in capsys.readouterr().out
         assert NoShowModelArtifact.objects.count() == 0
 
     def test_train_command_creates_active_artifact(self, patient, doctor, capsys):
@@ -409,10 +409,10 @@ class TestCommands:
         from django.core.management import call_command
 
         call_command("train_no_show", "--hospital", "nope-not-here")
-        assert "nahi mila" in capsys.readouterr().err
+        assert "not found" in capsys.readouterr().err
 
     def test_score_appointments_backfills(self, patient, doctor, capsys):
-        """Signal sirf NAYE appointments pe chalta hai - backfill command purane bhar deta hai."""
+        """The signal runs only on NEW appointments - the backfill command fills in the old ones."""
         from django.core.management import call_command
 
         with tenant_scope(patient.hospital):
@@ -461,7 +461,7 @@ class TestTenantIsolation:
 
         with tenant_scope(hospital_a):
             risks = list(AppointmentRisk.objects.all())
-            assert risks, "A ke liye risk banna chahiye tha"
+            assert risks, "a risk should have been created for A"
             assert all(r.hospital_id == hospital_a.pk for r in risks)
             assert all(r.appointment.patient.first_name != "Bonly" for r in risks)
             high = list(AppointmentRisk.high_risk_upcoming())
@@ -472,7 +472,7 @@ class TestTenantIsolation:
             assert all(r.hospital_id == hospital_b.pk for r in risks)
 
     def test_artifact_lookup_uses_unscoped_manager_for_global(self, hospital_a, hospital_b):
-        """Global artifact ka hospital NULL hai - tenant-scoped manager use kiya to kabhi na milega."""
+        """The global artifact's hospital is NULL - a tenant-scoped manager would never find it."""
         artifact = NoShowModelArtifact.objects.create(
             version="gbm_global_test", hospital=None, relative_path="global/x.joblib",
             training_rows=500, positive_rate=0.3, is_active=True,

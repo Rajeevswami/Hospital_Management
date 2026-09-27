@@ -1,11 +1,11 @@
 """
-PHASE 1 KA SABSE ZAROORI TEST: ek hospital ka data doosre hospital ko
-KABHI NA DIKHE.
+THE MOST IMPORTANT TEST OF PHASE 1: one hospital's data must never show up
+on another hospital.
 
-Teen layers verify hoti hain:
-  1. ORM      - Model.objects automatically tenant tak scoped
-  2. HTTP     - subdomain se tenant resolve; doosre tenant ka URL = 404
-  3. Auth     - hospital A ka login hospital B ke subdomain pe kaam nahi karta
+Three layers are verified:
+  1. ORM      - Model.objects is automatically scoped to the tenant
+  2. HTTP     - tenant resolved from the subdomain; another tenant's URL = 404
+  3. Auth     - a hospital A login does not work on hospital B's subdomain
 """
 import pytest
 from django.core.exceptions import ImproperlyConfigured
@@ -47,7 +47,7 @@ class TestQuerysetScoping:
     def test_get_by_pk_of_other_tenant_raises_doesnotexist(self, hospital_a, hospital_b):
         with tenant_scope(hospital_b):
             other = Patient.objects.create(
-                first_name="Chup", last_name="Jao", date_of_birth="1990-01-01",
+                first_name="Quiet", last_name="Ghost", date_of_birth="1990-01-01",
                 gender="M", phone="9000000003",
             )
         with tenant_scope(hospital_a):
@@ -93,7 +93,7 @@ class TestQuerysetScoping:
     def test_no_tenant_during_request_is_a_loud_error_not_silently_everything(
         self, hospital_a
     ):
-        """Silent leak sabse khatarnak bug hai - isliye loud failure."""
+        """A silent leak is the most dangerous bug - hence the loud failure."""
         from tenants import context as ctx
 
         with tenant_scope(hospital_a):
@@ -101,7 +101,7 @@ class TestQuerysetScoping:
                 first_name="Z", last_name="Z", date_of_birth="1990-01-01",
                 gender="M", phone="9000000006",
             )
-        # request active hai par tenant set nahi -> error
+        # request is active but no tenant is set -> error
         ctx.mark_request_started()
         try:
             with pytest.raises(ImproperlyConfigured):
@@ -117,7 +117,7 @@ class TestQuerysetScoping:
                 first_name="Owner", last_name="A", date_of_birth="1990-01-01",
                 gender="M", phone="9000000007",
             )
-        # Hospital B ke context mein hospital A ka patient use karne ki koshish
+        # trying to use hospital A's patient in hospital B's context
         with tenant_scope(hospital_b):
             with pytest.raises(Patient.DoesNotExist):
                 Patient.objects.get(pk=patient.pk)
@@ -157,12 +157,12 @@ class TestHttpIsolation:
     def test_user_of_other_hospital_is_blocked_on_foreign_subdomain(
         self, client, hospital_a, hospital_b, make_user
     ):
-        """Hospital B ka user hospital A ke subdomain pe aaye -> block (data zero)."""
+        """Hospital B's user arriving on hospital A's subdomain -> blocked (zero data)."""
         user_b = make_user(hospital_b, username="intruder")
         with tenant_scope(hospital_b):
             client.force_login(user_b)
             resp = client.get("/patients/", HTTP_HOST="acme.testserver")
-        # ya to 403 (middleware guard) ya apne hospital pe redirect - dono safe
+        # either 403 (middleware guard) or a redirect to their own hospital - both safe
         assert resp.status_code in (302, 403, 404)
         if resp.status_code == 302:
             assert "acme" not in resp["Location"]
@@ -170,14 +170,14 @@ class TestHttpIsolation:
     def test_allowed_domain_with_no_tenant_redirects_to_login(
         self, client, hospital_a, make_patient
     ):
-        """Root domain (koi subdomain nahi) -> login pe redirect, data kabhi nahi."""
+        """Root domain (no subdomain) -> redirect to login, never data."""
         make_patient(hospital_a)
         resp = client.get("/patients/", HTTP_HOST="testserver")
         assert resp.status_code == 302
         assert "/accounts/login/" in resp["Location"]
 
     def test_unrelated_host_is_rejected_by_django(self, client, hospital_a, make_patient):
-        """ALLOWED_HOSTS ke bahar ka host -> Django khud 400 deta hai (middleware se pehle)."""
+        """A host outside ALLOWED_HOSTS -> Django itself returns 400 (before the middleware)."""
         make_patient(hospital_a)
         resp = client.get("/patients/", HTTP_HOST="evil.com")
         assert resp.status_code == 400
@@ -208,16 +208,16 @@ class TestAuthIsolation:
         make_user(hospital_a, username="admin", password="PassA!12345")
         make_user(hospital_b, username="admin", password="PassB!12345")
 
-        # A ke credentials A ke subdomain pe -> OK
+        # A's credentials on A's subdomain -> OK
         ok = client.post(
             "/accounts/login/",
             {"username": "admin", "password": "PassA!12345"},
             HTTP_HOST="acme.testserver",
         )
-        assert ok.status_code == 302  # dashboard pe redirect
+        assert ok.status_code == 302  # redirect to the dashboard
 
         client.logout()
-        # A ke credentials B ke subdomain pe -> FAIL
+        # A's credentials on B's subdomain -> FAIL
         bad = client.post(
             "/accounts/login/",
             {"username": "admin", "password": "PassA!12345"},

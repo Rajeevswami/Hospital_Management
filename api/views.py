@@ -1,13 +1,13 @@
 """
 API endpoints (Phase 4).
 
-Auth: JWT (SimpleJWT). Token lene ke liye `POST /api/token/` - username/password
-usi hospital ke subdomain (ya X-Hospital-Slug header) ke saath, kyunki login
-tenant-scoped backend se hota hai.
+Auth: JWT (SimpleJWT). Get a token with `POST /api/token/` - username/password
+on the same hospital's subdomain (or with the X-Hospital-Slug header), because
+login goes through the tenant-scoped backend.
 
-Gating: har data endpoint pe `api_access` feature check hota hai (HasApiAccess).
-Token endpoint aur schema/docs gate nahi hote - warna client ko pata hi na chale
-ki API hai kya.
+Gating: every data endpoint checks the `api_access` feature (HasApiAccess).
+The token endpoint and schema/docs are not gated - otherwise a client would
+not even discover the API.
 """
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiExample, extend_schema
@@ -41,7 +41,7 @@ from .viewsets import TenantModelViewSet
 
 
 class WriteRolesMixin:
-    """Padhna sabko, likhna sirf in roles ko."""
+    """Read for everyone, write only for these roles."""
 
     write_roles = ()
 
@@ -60,7 +60,7 @@ def _write_role_permission(roles):
 
 # --------------------------------------------------------------------- patients
 class PatientViewSet(WriteRolesMixin, TenantModelViewSet):
-    """Patients CRUD. Likhna sirf ADMIN / RECEPTIONIST."""
+    """Patients CRUD. Write only for ADMIN / RECEPTIONIST."""
 
     tenant_model = Patient
     serializer_class = PatientSerializer
@@ -71,11 +71,11 @@ class PatientViewSet(WriteRolesMixin, TenantModelViewSet):
     ordering = ["-created_at"]
 
     def create(self, request, *args, **kwargs):
-        # Phase 2 ka patient_limit gate - API se bhi bypass nahi hona chahiye
+        # Phase 2's patient_limit gate - it must not be bypassable from the API either
         allowed, reason, limit = check_limit(request, "patient_limit", Patient.objects.count())
         if not allowed:
             return Response(
-                {"detail": f"Patient limit ({limit}) poora ho gaya hai. Plan upgrade karo.",
+                {"detail": f"The patient limit ({limit}) has been reached. Please upgrade your plan.",
                  "reason": reason},
                 status=status.HTTP_402_PAYMENT_REQUIRED,
             )
@@ -84,7 +84,7 @@ class PatientViewSet(WriteRolesMixin, TenantModelViewSet):
     @extend_schema(responses=AppointmentSerializer(many=True))
     @action(detail=True, methods=["get"])
     def appointments(self, request, pk=None):
-        """Is patient ke appointments."""
+        """This patient's appointments."""
         patient = self.get_object()
         qs = Appointment.objects.filter(patient=patient).select_related("doctor__user", "risk")
         page = self.paginate_queryset(qs)
@@ -109,8 +109,8 @@ class DoctorViewSet(WriteRolesMixin, TenantModelViewSet):
 class AppointmentViewSet(WriteRolesMixin, TenantModelViewSet):
     """
     Appointments CRUD + do useful actions:
-      GET  /api/appointments/today/          aaj ke appointments
-      PATCH /api/appointments/<id>/status/   COMPLETED / NO_SHOW / CANCELLED mark karo
+      GET  /api/appointments/today/          today's appointments
+      PATCH /api/appointments/<id>/status/   mark COMPLETED / NO_SHOW / CANCELLED
     """
 
     tenant_model = Appointment
@@ -124,7 +124,7 @@ class AppointmentViewSet(WriteRolesMixin, TenantModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset().select_related("patient", "doctor__user", "risk")
         doctor = getattr(self.request.user, "doctor_profile", None)
-        # Doctor ko sirf apne appointments (existing RBAC ke hisaab se)
+        # Doctors get only their own appointments (per the existing RBAC)
         if self.request.user.role == User.Role.DOCTOR and doctor is not None:
             qs = qs.filter(doctor=doctor)
         return qs
@@ -143,7 +143,7 @@ class AppointmentViewSet(WriteRolesMixin, TenantModelViewSet):
     @extend_schema(request=AppointmentStatusSerializer, responses=AppointmentSerializer)
     @action(detail=True, methods=["patch"], url_path="status")
     def set_status(self, request, pk=None):
-        """Status update (billing flow wahi rehta hai - yahan sirf status)."""
+        """Status update (the billing flow is unchanged - only the status here)."""
         appointment = self.get_object()
         ser = AppointmentStatusSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
@@ -154,18 +154,18 @@ class AppointmentViewSet(WriteRolesMixin, TenantModelViewSet):
     @extend_schema(responses=AppointmentRiskSerializer)
     @action(detail=True, methods=["get"])
     def risk(self, request, pk=None):
-        """Phase 3 ka no-show risk (agar score bana ho)."""
+        """Phase 3 no-show risk (if a score exists)."""
         appointment = self.get_object()
         risk = getattr(appointment, "risk", None)
         if risk is None:
-            return Response({"detail": "Is appointment ka abhi koi score nahi hai."},
+            return Response({"detail": "This appointment has no score yet."},
                             status=status.HTTP_404_NOT_FOUND)
         return Response(AppointmentRiskSerializer(risk).data)
 
 
 # --------------------------------------------------------------------- invoices
 class InvoiceViewSet(TenantModelViewSet):
-    """Invoices - read-only (payment flow HTML/PDF side pe hai)."""
+    """Invoices - read-only (the payment flow is on the HTML/PDF side)."""
 
     tenant_model = Invoice
     serializer_class = InvoiceSerializer
@@ -183,7 +183,7 @@ class InvoiceViewSet(TenantModelViewSet):
 
 # ------------------------------------------------------------------------ staff
 class StaffViewSet(TenantModelViewSet):
-    """Hospital ka staff - sirf ADMIN."""
+    """The hospital's staff - ADMIN only."""
 
     tenant_model = User
     serializer_class = UserSerializer
@@ -198,8 +198,8 @@ class StaffViewSet(TenantModelViewSet):
 class AppointmentRiskViewSet(TenantModelViewSet):
     """
     No-show risk scores - read-only.
-    NOTE: yeh `api_access` se gated hai; AI dashboard wala `ai_no_show` gate
-    HTML page ke liye tha. API consumer ko scores dikhna chahiye (usne API pay kiya hai).
+    NOTE: this is gated by `api_access`; the AI dashboard's `ai_no_show` gate
+    was for the HTML page. An API consumer should see the scores (they paid for the API).
     """
 
     tenant_model = AppointmentRisk
@@ -214,7 +214,7 @@ class AppointmentRiskViewSet(TenantModelViewSet):
     @extend_schema(responses=AppointmentRiskSerializer(many=True))
     @action(detail=False, methods=["get"], url_path="high")
     def high(self, request):
-        """Aane wale HIGH risk appointments (dashboard alert ka API version)."""
+        """Upcoming HIGH-risk appointments (the API version of the dashboard alert)."""
         qs = AppointmentRisk.high_risk_upcoming(limit=50)
         return Response(AppointmentRiskSerializer(qs, many=True).data)
 
@@ -224,7 +224,7 @@ class AppointmentRiskViewSet(TenantModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsTenantMember, HasApiAccess])
 def me(request):
-    """Apna profile + role + hospital."""
+    """Own profile + role + hospital."""
     return Response(UserSerializer(request.user).data)
 
 
@@ -232,12 +232,12 @@ def me(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsTenantMember, HasApiAccess])
 def current_hospital(request):
-    """Current tenant ki info (plan + subscription status ke saath)."""
+    """Info about the current tenant (with plan + subscription status)."""
     hospital = request.hospital
     if hospital is None:
         return Response({"detail": "No tenant"}, status=status.HTTP_400_BAD_REQUEST)
     sub = Subscription.for_hospital(hospital)
-    hospital.subscription = sub  # serializer isi se plan padhta hai
+    hospital.subscription = sub  # the serializer reads the plan from this
     return Response(HospitalSerializer(hospital).data)
 
 
@@ -253,10 +253,10 @@ def current_hospital(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated, IsTenantMember, HasApiAccess])
 def subscription_summary(request):
-    """Plan, status, limits aur feature flags - client ko UI gate karne ke liye."""
+    """Plan, status, limits and feature flags - so the client can gate its UI."""
     sub = Subscription.for_hospital(request.hospital)
     if sub is None:
-        return Response({"detail": "Koi subscription nahi."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "No subscription."}, status=status.HTTP_404_NOT_FOUND)
     return Response(SubscriptionSummarySerializer({
         "plan": sub.plan.name,
         "status": sub.status,
@@ -272,8 +272,8 @@ def subscription_summary(request):
 @permission_classes([IsAuthenticated, IsTenantMember, HasApiAccess])
 def feature_check(request):
     """
-    `GET /api/features/<key>/` - ek feature allowed hai ya nahi.
-    200 = allowed, 402 = plan mein nahi (reason ke saath).
+    `GET /api/features/<key>/` - whether a feature is allowed.
+    200 = allowed, 402 = not in the plan (with the reason).
     """
     key = request.query_params.get("feature", "")
     if key not in Feature.values:
@@ -291,7 +291,7 @@ def feature_check(request):
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def api_root(request):
-    """Discovery endpoint - kaun se resources available hain."""
+    """Discovery endpoint - which resources are available."""
     base = request.build_absolute_uri("/api/")
     return Response({
         "token": base + "token/",

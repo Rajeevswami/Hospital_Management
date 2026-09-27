@@ -1,13 +1,13 @@
 """
 scikit-learn GradientBoostingClassifier + joblib persistence.
 
-Kab use hota hai: jab hospital ke paas `ML_MIN_TRAINING_ROWS` (default 250) se
-zyada LABELLED appointments hon (status COMPLETED / NO_SHOW / CANCELLED).
-Uske pehle ml_engine.rules wala rule-based engine chalta hai.
+When it is used: when a hospital has more than `ML_MIN_TRAINING_ROWS`
+(default 250) LABELLED appointments (status COMPLETED / NO_SHOW / CANCELLED).
+Until then, the rule-based engine from ml_engine.rules runs.
 
-Fail-safe: model file missing / corrupt / sklearn installed nahi / feature list
-mismatch -> exception phenkne ke bajaye None return karta hai, aur caller
-rule-based engine pe fall back kar jaata hai. Prediction kabhi crash nahi karti.
+Fail-safe: model file missing / corrupt / sklearn not installed / feature list
+mismatch -> instead of raising an exception it returns None, and the caller
+falls back to the rule-based engine. Prediction never crashes.
 """
 import logging
 from datetime import datetime
@@ -30,8 +30,8 @@ def model_dir():
 def _now_tag():
     """
     Timestamp + short random suffix.
-    Sirf timestamp kaafi nahi: do trainings same second mein ho jaayein
-    (cron + manual, ya do hospitals) to UNIQUE(version) toot jaata hai.
+    A timestamp alone is not enough: two trainings in the same second
+    (cron + manual, or two hospitals) would break UNIQUE(version).
     """
     import uuid
 
@@ -39,7 +39,7 @@ def _now_tag():
 
 
 class NoShowPredictor:
-    """Trained model ka wrapper - save/load/predict."""
+    """Wrapper for a trained model - save/load/predict."""
 
     def __init__(self, model, version, feature_names, training_rows=0, metrics=None):
         self.model = model
@@ -75,16 +75,16 @@ class NoShowPredictor:
 
         path = model_dir() / relative_path
         if not path.exists():
-            logger.warning("Model file nahi mili: %s", path)
+            logger.warning("Model file not found: %s", path)
             return None
         try:
             blob = joblib.load(path)
         except Exception:
-            logger.exception("Model load nahi ho paya: %s", path)
+            logger.exception("Could not load the model: %s", path)
             return None
         if blob.get("feature_names") != FEATURE_NAMES:
             logger.error(
-                "Feature mismatch - model purane feature set pe train hua tha. Retrain karo."
+                "Feature mismatch - the model was trained on an older feature set. Retrain it."
             )
             return None
         return cls(
@@ -98,15 +98,15 @@ class NoShowPredictor:
     # ---------------- prediction ----------------
     def predict_proba(self, features):
         if set(self.feature_names) != set(FEATURE_NAMES):
-            raise ValueError("Model ke features current feature set se match nahi karte.")
+            raise ValueError("The model's features do not match the current feature set.")
         return float(self.model.predict_proba([to_vector(features)])[0][1])
 
 
 # ------------------------------------------------------------------- training
 def collect_training_data(hospital=None, limit=None):
     """
-    Labelled appointments se (X, y) banao.
-    hospital=None -> sab hospitals ka data (global model).
+    Build (X, y) from labelled appointments.
+    hospital=None -> all hospitals' data (global model).
     """
     from appointments.models import Appointment
 
@@ -133,10 +133,10 @@ def collect_training_data(hospital=None, limit=None):
 
 def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
     """
-    Model train karo, joblib save karo, NoShowModelArtifact record banao.
+    Train the model, save it with joblib, create a NoShowModelArtifact record.
 
     Returns dict: {"ok": bool, "reason"/"artifact"/"metrics": ...}
-    Data kam ho to ok=False + reason - caller ko pata chalta hai ki rule-based
+    If data is scarce -> ok=False + reason - the caller learns that the rule-based
     engine hi chalta rahega.
     """
     min_rows = min_rows or getattr(settings, "ML_MIN_TRAINING_ROWS", 250)
@@ -146,7 +146,7 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
         from sklearn.metrics import precision_score, recall_score, roc_auc_score
         from sklearn.model_selection import train_test_split
     except ImportError as exc:
-        return {"ok": False, "reason": f"scikit-learn installed nahi hai: {exc}"}
+        return {"ok": False, "reason": f"scikit-learn is not installed: {exc}"}
 
     X, y = collect_training_data(hospital=hospital)
     total = len(X)
@@ -154,8 +154,8 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
         return {
             "ok": False,
             "reason": (
-                f"Sirf {total} labelled appointments hain, {min_rows} chahiye. "
-                "Tab tak rule-based engine chalega (yeh expected hai)."
+                f"Only {total} labelled appointments, {min_rows} are needed. "
+                "Until then the rule-based engine runs (this is expected)."
             ),
             "rows": total,
             "required": min_rows,
@@ -165,11 +165,11 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
     if positives == 0 or positives == total:
         return {
             "ok": False,
-            "reason": f"Labels ek-tarfa hain ({positives}/{total} no-show) - model train nahi ho sakta.",
+            "reason": f"Labels are one-sided ({positives}/{total} no-show) - the model cannot be trained.",
             "rows": total,
         }
 
-    # Stratified split taaki chhote class ka distribution dono side same rahe
+    # Stratified split so the minority class distribution is the same on both sides
     stratify = y if 0 < positives < total and min(positives, total - positives) >= 2 else None
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=random_state, stratify=stratify
@@ -188,7 +188,7 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
         metrics["recall"] = round(float(recall_score(y_test, proba >= 0.5, zero_division=0)), 4)
         metrics["baseline_no_show_rate"] = round(sum(y_test) / len(y_test), 4)
     except Exception:
-        logger.exception("Metrics compute nahi ho paye (model phir bhi save hoga)")
+        logger.exception("Could not compute the metrics (the model is still saved)")
 
     version = f"gbm_{hospital.slug + '_' if hospital else ''}{_now_tag()}"
     predictor = NoShowPredictor(
@@ -199,9 +199,9 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
 
     from .models import NoShowModelArtifact
 
-    # Purane models ko deactivate + unki files delete (model dir bada na ho).
-    # Rollback chahiye to admin se kisi purane artifact ko is_active kar do -
-    # bas uski file retrain se pehle delete na ho, isliye yeh cleanup opt-in hai.
+    # Deactivate old models + delete their files (so the model dir does not grow).
+    # For a rollback, mark an old artifact is_active from admin -
+    # its file just must not be deleted before the retrain, which is why this cleanup is opt-in.
     previous = list(
         NoShowModelArtifact.all_objects.filter(hospital=hospital, is_active=True)
     )
@@ -212,7 +212,7 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
         try:
             (model_dir() / old_artifact.relative_path).unlink(missing_ok=True)
         except OSError:
-            logger.warning("Purani model file delete nahi ho payi: %s", old_artifact.relative_path)
+            logger.warning("Could not delete the old model file: %s", old_artifact.relative_path)
 
     artifact = NoShowModelArtifact.objects.create(
         version=version,
@@ -234,7 +234,7 @@ def train(hospital=None, min_rows=None, random_state=42, trained_by=None):
 
 
 def get_predictor(hospital=None):
-    """Active trained model, ya None (-> caller rule-based use karega)."""
+    """The active trained model, or None (-> the caller uses the rule-based engine)."""
     from .models import NoShowModelArtifact
 
     artifact = NoShowModelArtifact.active_for(hospital)

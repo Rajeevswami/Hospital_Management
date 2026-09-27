@@ -15,7 +15,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hospital_system.settings')
 
 application = get_asgi_application()
 
-# wsgi.py jaisa hi rationale - URLconf startup pe preload (dekho wsgi.py comment)
+# Same rationale as wsgi.py - preload the URLconf at startup (see the wsgi.py comment)
 from django.urls import get_resolver  # noqa: E402
 
 get_resolver().url_patterns

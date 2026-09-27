@@ -9,9 +9,9 @@ from .models import User
 
 class TenantUserChangeForm(UserChangeForm):
     """
-    Username uniqueness ab PER HOSPITAL hai (global unique constraint hata diya),
-    isliye admin form ko bhi tenant ke andar validate karna padta hai - warna
-    doosre hospital ka same username 'already exists' bol deta.
+    Username uniqueness is now PER HOSPITAL (the global unique constraint was
+    removed), so the admin form must validate within the tenant too - otherwise
+    the same username in another hospital would be rejected with 'already exists'.
     """
 
     class Meta(UserChangeForm.Meta):

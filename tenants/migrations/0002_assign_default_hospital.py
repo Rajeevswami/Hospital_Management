@@ -1,27 +1,27 @@
 """
-Phase 1 data migration: "Default Hospital" banao aur purana saara data usse assign karo.
+Phase 1 data migration: create "Default Hospital" and assign all pre-existing data to it.
 
-Kyun: hospital FK pehle NULLABLE add kiya gaya hai (0001 migrations), taaki existing
-production rows block na hon. Yeh migration:
-  1. Default Hospital create karti hai (idempotent - slug settings se)
-  2. Har purani row ko sahi hospital deti hai:
-       - jinka koi user link hai (registered_by / created_by / user / admitted_by
-         / received_by) -> us user ka hospital
-       - child rows (InvoiceItem, PrescriptionItem, Bed) -> parent ka hospital
-       - baaki -> Default Hospital
-  3. IDCounter ke purane rows Default Hospital pe move karti hai, taaki
-     PAT-2026-0001 jaisi numbering AAGE SE continue ho (restart nahi hoti)
+Why: the hospital FK was added as NULLABLE first (0001 migrations), so existing
+production rows are not blocked. This migration:
+  1. Creates Default Hospital (idempotent - slug from settings)
+  2. Gives every old row the right hospital:
+       - rows with a user link (registered_by / created_by / user / admitted_by
+         / received_by) -> that user's hospital
+       - child rows (InvoiceItem, PrescriptionItem, Bed) -> the parent's hospital
+       - the rest -> Default Hospital
+  3. Moves old IDCounter rows to Default Hospital, so numbering like
+     PAT-2026-0001 continues FROM WHERE IT LEFT OFF (it does not restart)
 
-Reverse: safe - bas hospital ko wapas NULL kar deta hai (koi row delete nahi hoti).
-Koi data delete/overwrite nahi hota.
+Reverse: safe - it just sets hospital back to NULL (no rows are deleted).
+No data is deleted/overwritten.
 """
 from django.conf import settings
 from django.db import migrations
 
 # (app, model, strategy)
-#   'default'          -> sab rows ko Default Hospital
-#   ('user', field)    -> us FK ke user ka hospital, warna Default
-#   ('parent', field)  -> parent record ka hospital, warna Default
+#   'default'          -> Default Hospital for all rows
+#   ('user', field)    -> that FK's user's hospital, else Default
+#   ('parent', field)  -> the parent record's hospital, else Default
 TENANT_MODELS = [
     ("accounts", "User", ("user_self", None)),
     ("doctors", "Doctor", ("user", "user")),
@@ -49,14 +49,14 @@ def get_default_hospital(Hospital):
 
 def assign_from_parent(model, field, default_hospital):
     """
-    Rows ko unke parent/user record ka hospital do; jinke parent NULL hai ya
-    parent ka hospital set nahi, unhe Default Hospital.
+    Give rows their parent/user record's hospital; rows whose parent is NULL or
+    whose parent has no hospital get Default Hospital.
 
-    Implementation note: Django `.update()` aur `.exclude()` dono mein joined
-    field references allow nahi karta ("Joined field references are not
-    permitted in this query"). Isliye parent-wise group karke ek-ek UPDATE
-    chalate hain - still set-based per group, aur parent tables chhoti hoti hain
-    (doctors / invoices), isliye fast.
+    Implementation note: Django allows joined field references in neither
+    `.update()` nor `.exclude()` ("Joined field references are not permitted in
+    this query"). So we group by parent and run one UPDATE per group - still
+    set-based per group, and parent tables are small (doctors / invoices), so
+    it is fast.
     """
     pending = model.objects.filter(hospital__isnull=True).exclude(
         **{f"{field}__isnull": True}
@@ -70,7 +70,7 @@ def assign_from_parent(model, field, default_hospital):
         hospital = getattr(parent, "hospital", None) or default_hospital
         pending.filter(**{f"{field}_id": parent_id}).update(hospital=hospital)
 
-    # Jo abhi bhi NULL hain (parent NULL / parent ka hospital NULL) -> Default
+    # Still NULL (parent NULL / parent's hospital NULL) -> Default
     model.objects.filter(hospital__isnull=True).update(hospital=default_hospital)
 
 
@@ -93,7 +93,7 @@ def forwards(apps, schema_editor):
         if strategy == "default":
             rows.update(hospital=default_hospital)
         elif strategy[0] == "user_self":
-            # User khud: platform super-admin (is_superuser, koi hospital nahi) NULL rehne do
+            # The users themselves: platform super-admins (is_superuser, no hospital) stay NULL
             model.objects.filter(hospital__isnull=True, is_superuser=False).update(
                 hospital=default_hospital
             )
@@ -108,7 +108,7 @@ def forwards(apps, schema_editor):
             f"({still_null} intentionally left NULL)"
         )
 
-    # IDCounter: purane counters Default Hospital pe, warna numbering 1 se restart hogi
+    # IDCounter: old counters go to Default Hospital, otherwise numbering restarts at 1
     IDCounter = apps.get_model("core", "IDCounter")
     moved = IDCounter.objects.filter(hospital__isnull=True).update(hospital=default_hospital)
     print(f"    core.IDCounter: {moved} legacy counters -> Default Hospital")
@@ -119,7 +119,7 @@ def forwards(apps, schema_editor):
 
 
 def backwards(apps, schema_editor):
-    """Hospital assignment hata do - rows delete nahi hoti. Default Hospital bhi rehne do."""
+    """Remove the hospital assignment - no rows are deleted. Keep Default Hospital too."""
     for app_label, model_name, _strategy in TENANT_MODELS:
         try:
             model = apps.get_model(app_label, model_name)
@@ -129,14 +129,14 @@ def backwards(apps, schema_editor):
     apps.get_model("core", "IDCounter").objects.exclude(hospital__isnull=True).update(hospital=None)
 
 
-# F import yahan, taaki module-level import order ka issue na ho
+# F is imported here to avoid module-level import order issues
 from django.db.models import F as models_F  # noqa: E402
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        # Saare nullable-FK migrations apply hone ke baad hi data backfill
+        # the data backfill runs only after all nullable-FK migrations are applied
         ("tenants", "0001_initial"),
         ("accounts", "0003_alter_user_username"),
         ("core", "0003_auditlog_hospital_idcounter_hospital_and_more"),

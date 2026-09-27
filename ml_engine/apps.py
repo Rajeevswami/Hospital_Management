@@ -7,6 +7,6 @@ class MlEngineConfig(AppConfig):
     verbose_name = "ML Engine (No-Show Prediction)"
 
     def ready(self):
-        # Appointment save hone pe async risk scoring wire karo.
-        # Import yahan (na ki module level pe) - warna circular import hota hai.
+        # Wire up async risk scoring when an Appointment is saved.
+        # Import here (not at module level) - otherwise there is a circular import.
         from . import signals  # noqa: F401

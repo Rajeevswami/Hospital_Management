@@ -37,9 +37,9 @@ class Appointment(TenantModel):
         return f"{self.patient.full_name} with {self.doctor} on {self.appointment_date} {self.appointment_time}"
 
     def clean(self):
-        # NOTE: self.__class__.objects tenant-scoped hai, isliye yeh conflict check
-        # sirf isi hospital ke appointments dekhta hai (doosre hospital ka same
-        # doctor-slot irrelevant hai).
+        # NOTE: self.__class__.objects is tenant-scoped, so this conflict check
+        # looks only at this hospital's appointments (the same doctor-slot in
+        # another hospital is irrelevant).
         conflict = self.__class__.objects.filter(
             doctor=self.doctor,
             appointment_date=self.appointment_date,
@@ -50,7 +50,7 @@ class Appointment(TenantModel):
             raise ValidationError("This doctor already has a scheduled appointment at this exact time.")
 
     def save(self, *args, **kwargs):
-        # hospital pehle (warna full_clean "cannot be null" dega), phir fee, phir validate
+        # hospital first (otherwise full_clean says "cannot be null"), then fee, then validate
         self.ensure_hospital()
         if self.fee is None:
             self.fee = self.doctor.consultation_fee

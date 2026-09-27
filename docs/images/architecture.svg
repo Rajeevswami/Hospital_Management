@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#4b5563"/>
+    </marker>
+    <linearGradient id="hero" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+    <linearGradient id="ml" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+    <style>
+      .t   { fill:#111827; font-size:15px; font-weight:600; }
+      .s   { fill:#374151; font-size:12.5px; }
+      .w   { fill:#ffffff; font-size:15px; font-weight:600; }
+      .ws  { fill:#e5e7eb; font-size:12px; }
+      .cap { fill:#6b7280; font-size:11.5px; }
+      .lbl { fill:#4b5563; font-size:11px; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="980" height="620" fill="#f8fafc"/>
+  <text x="24" y="34" font-size="20" font-weight="700" fill="#111827">Hospital Management — Multi-tenant SaaS Architecture</text>
+  <text x="24" y="54" class="cap">Subdomain-based tenancy · Django 6 + DRF · Celery no-show ML · Razorpay billing</text>
+
+  <!-- Clients -->
+  <rect x="30" y="90" width="180" height="70" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="120" y="118" text-anchor="middle" class="t">Browser</text>
+  <text x="120" y="138" text-anchor="middle" class="s">hospital.com / acme.…</text>
+
+  <rect x="240" y="90" width="180" height="70" rx="10" fill="#ffffff" stroke="#93c5fd" stroke-width="1.5"/>
+  <text x="330" y="118" text-anchor="middle" class="t">Mobile / API client</text>
+  <text x="330" y="138" text-anchor="middle" class="s">JWT bearer tokens</text>
+
+  <!-- Edge -->
+  <rect x="470" y="90" width="180" height="70" rx="10" fill="#0f172a"/>
+  <text x="560" y="118" text-anchor="middle" class="w">Nginx + TLS</text>
+  <text x="560" y="138" text-anchor="middle" class="ws">wildcard *. root domain</text>
+
+  <!-- Django -->
+  <rect x="700" y="80" width="250" height="240" rx="12" fill="url(#hero)"/>
+  <text x="825" y="108" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">Gunicorn · Django</text>
+  <rect x="716" y="122" width="218" height="46" rx="8" fill="#ffffff22"/>
+  <text x="825" y="141" text-anchor="middle" class="ws">TenantMiddleware</text>
+  <text x="825" y="158" text-anchor="middle" class="ws">subdomain → request.hospital</text>
+  <rect x="716" y="178" width="218" height="46" rx="8" fill="#ffffff22"/>
+  <text x="825" y="197" text-anchor="middle" class="ws">Tenant-scoped ORM manager</text>
+  <text x="825" y="214" text-anchor="middle" class="ws">filter(hospital=current)</text>
+  <rect x="716" y="234" width="218" height="70" rx="8" fill="#ffffff22"/>
+  <text x="825" y="253" text-anchor="middle" class="ws">Apps: accounts · patients</text>
+  <text x="825" y="270" text-anchor="middle" class="ws">appointments · billing · pharmacy</text>
+  <text x="825" y="287" text-anchor="middle" class="ws">wards · subscriptions · ml_engine</text>
+
+  <!-- Gating -->
+  <rect x="30" y="200" width="250" height="120" rx="12" fill="#ffffff" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="155" y="228" text-anchor="middle" class="t">Subscription gating</text>
+  <text x="155" y="252" text-anchor="middle" class="s">feature flags + plan limits</text>
+  <text x="155" y="272" text-anchor="middle" class="s">402 → upgrade prompt</text>
+  <text x="155" y="292" text-anchor="middle" class="s">grace period on failed payment</text>
+
+  <!-- Auth -->
+  <rect x="310" y="200" width="250" height="120" rx="12" fill="#ffffff" stroke="#10b981" stroke-width="1.5"/>
+  <text x="435" y="228" text-anchor="middle" class="t">Tenant-aware auth</text>
+  <text x="435" y="252" text-anchor="middle" class="s">TenantModelBackend</text>
+  <text x="435" y="272" text-anchor="middle" class="s">JWT + SimpleJWT blacklist</text>
+  <text x="435" y="292" text-anchor="middle" class="s">axes rate limiting · RBAC</text>
+
+  <!-- arrows top row -->
+  <line x1="210" y1="125" x2="465" y2="125" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="420" y1="125" x2="465" y2="125" stroke="#4b5563" stroke-width="1.6"/>
+  <line x1="650" y1="125" x2="695" y2="125" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="825" y1="320" x2="825" y2="365" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="838" y="348" class="lbl">SQL</text>
+  <line x1="560" y1="320" x2="700" y2="270" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="280" y1="260" x2="435" y2="260" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Data -->
+  <rect x="640" y="370" width="150" height="70" rx="10" fill="#0b3b5f"/>
+  <text x="715" y="400" text-anchor="middle" class="w">PostgreSQL</text>
+  <text x="715" y="420" text-anchor="middle" class="ws">row-level scoping</text>
+
+  <rect x="810" y="370" width="140" height="70" rx="10" fill="#7f1d1d"/>
+  <text x="880" y="400" text-anchor="middle" class="w">Redis</text>
+  <text x="880" y="420" text-anchor="middle" class="ws">broker + cache</text>
+
+  <!-- Celery -->
+  <rect x="470" y="370" width="150" height="70" rx="10" fill="#ffffff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="545" y="400" text-anchor="middle" class="t">Celery worker</text>
+  <text x="545" y="420" text-anchor="middle" class="s">async risk scoring</text>
+
+  <!-- ML -->
+  <rect x="470" y="475" width="330" height="110" rx="12" fill="url(#ml)"/>
+  <text x="635" y="503" text-anchor="middle" class="w">ML engine (no-show prediction)</text>
+  <text x="635" y="527" text-anchor="middle" class="ws">Cold start: rule-based scoring → trained: Gradient Boosting</text>
+  <text x="635" y="547" text-anchor="middle" class="ws">per-hospital or global joblib artifacts</text>
+  <text x="635" y="567" text-anchor="middle" class="ws">features frozen at booking time (no leakage)</text>
+
+  <!-- Razorpay -->
+  <rect x="30" y="370" width="250" height="110" rx="12" fill="#ffffff" stroke="#0ea5e9" stroke-width="1.5"/>
+  <text x="155" y="398" text-anchor="middle" class="t">Razorpay</text>
+  <text x="155" y="422" text-anchor="middle" class="s">plans · checkout · webhooks</text>
+  <text x="155" y="442" text-anchor="middle" class="s">payment states sync to Subscription</text>
+  <text x="155" y="462" text-anchor="middle" class="cap">tenant-exempt webhook on root domain</text>
+
+  <!-- Backups -->
+  <rect x="30" y="505" width="250" height="80" rx="12" fill="#ffffff" stroke="#6b7280" stroke-width="1.2" stroke-dasharray="5 4"/>
+  <text x="155" y="535" text-anchor="middle" class="t">Nightly pg_dump + uploads</text>
+  <text x="155" y="558" text-anchor="middle" class="s">retention 14 days</text>
+
+  <!-- arrows lower -->
+  <line x1="545" y1="320" x2="545" y2="365" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="545" y1="440" x2="545" y2="470" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <line x1="280" y1="425" x2="465" y2="405" stroke="#4b5563" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="330" y="405" class="lbl">webhooks</text>
+</svg>

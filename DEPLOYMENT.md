@@ -1,22 +1,22 @@
 # Hospital Management System — Deployment Guide
 
-Ye guide step-by-step batati hai ki domain/hosting buy karne ke baad project ko live kaise karna hai.
+This guide explains, step by step, how to take the project live after buying a domain and hosting.
 
-## Prerequisites (buy karne ke baad)
-- **Domain**: Namecheap / GoDaddy se khareedo
-- **VPS Hosting**: Hostinger VPS, DigitalOcean, ya Railway (Ubuntu 24.04 recommend)
-- VPS milne ke baad: IP address aur root/SSH access milega
+## Prerequisites (after purchase)
+- **Domain**: buy from Namecheap / GoDaddy
+- **VPS Hosting**: Hostinger VPS, DigitalOcean, or Railway (Ubuntu 24.04 recommended)
+- Once the VPS is provisioned: you will receive an IP address and root/SSH access
 
 ---
 
-## Step 1: Domain ko VPS se connect karo
-Domain registrar (Namecheap/GoDaddy) ke DNS settings mein:
-- A Record: `@` → tumhare VPS ka IP address
-- A Record: `www` → tumhare VPS ka IP address
+## Step 1: Connect the domain to the VPS
+In the domain registrar's (Namecheap/GoDaddy) DNS settings:
+- A Record: `@` → your VPS IP address
+- A Record: `www` → your VPS IP address
 
-(DNS propagate hone mein 1-24 hours lag sakte hain)
+(DNS propagation can take 1-24 hours)
 
-## Step 2: VPS pe SSH se login karo
+## Step 2: Log in to the VPS over SSH
 ```bash
 ssh root@your_server_ip
 ```
@@ -27,100 +27,100 @@ apt update && apt upgrade -y
 apt install -y python3-pip python3-venv nginx postgresql postgresql-contrib certbot python3-certbot-nginx git
 ```
 
-## Step 4: PostgreSQL database banao
+## Step 4: Create the PostgreSQL database
 ```bash
 sudo -u postgres psql
 ```
-Andar ye commands chalao:
+Run these commands inside:
 ```sql
 CREATE DATABASE hospital_db;
-CREATE USER hospital_user WITH PASSWORD 'STRONG_PASSWORD_YAHA_DAALO';
+CREATE USER hospital_user WITH PASSWORD 'PUT_STRONG_PASSWORD_HERE';
 ALTER ROLE hospital_user SET client_encoding TO 'utf8';
 GRANT ALL PRIVILEGES ON DATABASE hospital_db TO hospital_user;
 \q
 ```
 
-## Step 5: Project upload karo
+## Step 5: Upload the project
 ```bash
 mkdir -p /var/www/hospital_system
 cd /var/www/hospital_system
-# Apna zip yahan upload/extract karo, ya git clone karo
+# Upload/extract your zip here, or git clone the repository
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Step 6: .env file production ke liye set karo
+## Step 6: Set up the .env file for production
 ```bash
 cp .env.example .env
 nano .env
 ```
-Ye fill karo:
+Fill in these values:
 ```
-SECRET_KEY=<naya secret generate karo neeche diye command se>
+SECRET_KEY=<generate a new secret with the command below>
 DEBUG=False
 ALLOWED_HOSTS=yourhospital.com,www.yourhospital.com
-DATABASE_URL=postgres://hospital_user:STRONG_PASSWORD_YAHA_DAALO@127.0.0.1:5432/hospital_db
+DATABASE_URL=postgres://hospital_user:PUT_STRONG_PASSWORD_HERE@127.0.0.1:5432/hospital_db
 ```
-Naya SECRET_KEY generate karne ke liye:
+To generate a new SECRET_KEY:
 ```bash
 python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
-## Step 7: Database migrate aur static files collect karo
+## Step 7: Migrate the database and collect static files
 ```bash
 python manage.py migrate
 python manage.py collectstatic --noinput
 python manage.py createsuperuser
 ```
 
-## Step 8: Gunicorn service start karo
+## Step 8: Start the Gunicorn service
 ```bash
 mkdir -p /var/log/hospital_system
 cp deploy/hospital_system.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now hospital_system
-systemctl status hospital_system   # check ki "active (running)" dikh raha hai
+systemctl status hospital_system   # confirm that it shows "active (running)"
 ```
 
-## Step 9: Nginx setup karo
+## Step 9: Set up Nginx
 ```bash
 cp deploy/nginx.conf /etc/nginx/sites-available/hospital_system
-# nginx.conf mein yourhospital.com ko apne actual domain se replace karo
+# Replace yourhospital.com in nginx.conf with your actual domain
 ln -s /etc/nginx/sites-available/hospital_system /etc/nginx/sites-enabled/
 nginx -t
 systemctl restart nginx
 ```
 
-## Step 10: Free SSL certificate (HTTPS) laga do
+## Step 10: Install a free SSL certificate (HTTPS)
 ```bash
 certbot --nginx -d yourhospital.com -d www.yourhospital.com
 ```
-Certbot automatically Nginx config update kar dega HTTPS ke liye. Free certificate hai, auto-renew hota rehta hai.
+Certbot updates the Nginx config for HTTPS automatically. The certificate is free and keeps auto-renewing.
 
-## Step 11: Daily backup setup karo
+## Step 11: Set up the daily backup
 ```bash
 chmod +x deploy/backup_db.sh
 crontab -e
 ```
-Ye line add karo:
+Add this line:
 ```
 0 2 * * * /var/www/hospital_system/deploy/backup_db.sh >> /var/log/hospital_system/backup.log 2>&1
 ```
-(Har raat 2 AM pe automatic backup hoga, 14 din tak rakhega)
+(An automatic backup runs every night at 2 AM and is retained for 14 days)
 
 ---
 
 ## Verify everything is working
-1. Browser mein `https://yourhospital.com` khol kar login page check karo
-2. SSL lock icon dikhna chahiye (https, not http)
-3. Login karke dashboard test karo
-4. `systemctl status hospital_system` aur `systemctl status nginx` dono "active" hone chahiye
+1. Open `https://yourhospital.com` in a browser and check that the login page loads
+2. The SSL lock icon should be visible (https, not http)
+3. Log in and test the dashboard
+4. Both `systemctl status hospital_system` and `systemctl status nginx` should be "active"
 
-## Future code updates (jab bhi changes karne ho)
+## Future code updates (whenever you need to deploy changes)
 ```bash
 cd /var/www/hospital_system
-git pull   # ya naya zip upload karo
+git pull   # or upload a new zip
 source venv/bin/activate
 pip install -r requirements.txt
 python manage.py migrate
@@ -128,8 +128,8 @@ python manage.py collectstatic --noinput
 systemctl restart hospital_system
 ```
 
-## Agar kuch galat ho jaye
+## If something goes wrong
 ```bash
-journalctl -u hospital_system -n 50   # last 50 error lines dekhne ke liye
+journalctl -u hospital_system -n 50   # view the last 50 error lines
 tail -50 /var/log/hospital_system/error.log
 ```

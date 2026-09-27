@@ -1,8 +1,8 @@
 """
-Celery tasks - appointment create hone pe async risk scoring.
+Celery tasks - async risk scoring when an appointment is created.
 
-Local dev mein `CELERY_TASK_ALWAYS_EAGER=True` rakho to task turant (sync) chalta
-hai, broker ki zaroorat nahi. Production mein Redis broker chahiye.
+In local dev, keep `CELERY_TASK_ALWAYS_EAGER=True` and the task runs immediately
+(synchronously), no broker needed. Production needs a Redis broker.
 """
 import logging
 
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
              default_retry_delay=30)
 def score_appointment_task(self, appointment_id):
     """
-    Appointment ka no-show risk compute karo.
+    Compute the appointment's no-show risk.
 
-    Zaroori: Celery worker ke paas HTTP request (aur isliye middleware wala
-    tenant context) NAHI hota. Isliye appointment se hospital nikal kar
-    `tenant_context()` explicitly set karte hain - warna scoped managers
+    Important: a Celery worker has no HTTP request (and therefore no
+    middleware tenant context). So we take the hospital from the appointment
+    and set `tenant_context()` explicitly - otherwise the scoped managers
     ImproperlyConfigured denge.
     """
     from appointments.models import Appointment
@@ -33,7 +33,7 @@ def score_appointment_task(self, appointment_id):
             "patient", "doctor", "hospital"
         ).get(pk=appointment_id)
     except Appointment.DoesNotExist:
-        logger.warning("Appointment %s nahi mila (delete ho gaya?)", appointment_id)
+        logger.warning("Appointment %s not found (deleted?)", appointment_id)
         return {"appointment_id": appointment_id, "scored": False, "reason": "not found"}
 
     with tenant_context(appointment.hospital):

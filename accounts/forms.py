@@ -18,8 +18,8 @@ class StaffCreationForm(UserCreationForm):
 
     def clean_username(self):
         """
-        Username uniqueness ab PER HOSPITAL hai (do hospitals dono ka 'admin' ho
-        sakta hai). Isliye global check ki jagah current tenant ke andar check.
+        Username uniqueness is now PER HOSPITAL (two hospitals can both have 'admin').
+        So instead of a global check, the check is within the current tenant.
         """
         username = self.cleaned_data['username']
         qs = User.all_objects.filter(username=username)

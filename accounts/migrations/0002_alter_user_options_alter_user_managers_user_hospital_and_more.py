@@ -29,12 +29,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Yeh login kis hospital ka hai. NULL = platform super-admin.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='staff', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text='Which hospital this login belongs to. NULL = platform super-admin.', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='staff', to='tenants.hospital'),
         ),
         migrations.AddField(
             model_name='user',
             name='is_platform_admin',
-            field=models.BooleanField(default=False, help_text='Platform (SaaS) operator - sab hospitals dekh sakta hai. Hospital staff ke liye OFF.'),
+            field=models.BooleanField(default=False, help_text='Platform (SaaS) operator - can see all hospitals. OFF for hospital staff.'),
         ),
         migrations.AddConstraint(
             model_name='user',

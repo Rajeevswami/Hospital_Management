@@ -10,13 +10,13 @@ Usage:
         required_feature = "api_access"
 
 Rules:
-  * Subscription hi nahi        -> DENY (message ke saath upgrade page pe bhejo)
+  * No subscription at all      -> DENY (send to the upgrade page with a message)
   * Subscription inactive/expired -> DENY
-  * Plan mein feature off        -> DENY
-  * Platform super-admin         -> ALLOW (SaaS operator ko testing ke liye)
+  * Feature off in the plan      -> DENY
+  * Platform super-admin         -> ALLOW (so the SaaS operator can test)
 
-Gating ka source of truth `Subscription.for_hospital(request.hospital)` hai -
-DB se padhta hai, cache nahi, isliye plan badalte hi turant asar hota hai.
+The source of truth for gating is `Subscription.for_hospital(request.hospital)` -
+it reads from the DB, not a cache, so a plan change takes effect immediately.
 """
 from functools import wraps
 
@@ -26,7 +26,7 @@ from django.shortcuts import redirect
 
 
 class FeatureDenied(PermissionDenied):
-    """Plan mein yeh feature nahi hai (ya subscription active nahi)."""
+    """This feature is not in the plan (or the subscription is not active)."""
 
     def __init__(self, message="Your current plan does not include this feature.", **kwargs):
         super().__init__(message)
@@ -34,7 +34,7 @@ class FeatureDenied(PermissionDenied):
 
 
 def get_subscription(request):
-    """Request ke tenant ki subscription (ya None)."""
+    """The request's tenant's subscription (or None)."""
     from .models import Subscription
 
     hospital = getattr(request, "hospital", None)
@@ -53,7 +53,7 @@ def is_platform_admin(request):
 def check_feature(request, feature):
     """
     Returns (allowed: bool, reason: str).
-    Reason UI/messages ke liye hai - "kyun nahi mila" batana zaroori hai.
+    The reason is for the UI/messages - it is important to explain "why it was not granted".
     """
     if is_platform_admin(request):
         return True, "platform admin"
@@ -70,7 +70,7 @@ def check_feature(request, feature):
 
 def check_limit(request, limit_attr, current_count):
     """
-    (allowed, reason, limit_value) - plan ke numeric limit ke liye.
+    (allowed, reason, limit_value) - for the plan's numeric limit.
     limit_attr: 'patient_limit' | 'staff_limit' | 'appointment_limit'
     """
     from .models import UNLIMITED
@@ -91,18 +91,18 @@ def check_limit(request, limit_attr, current_count):
 
 
 def _deny_response(request, feature, reason):
-    """402 Payment Required + friendly message + billing page pe redirect."""
+    """402 Payment Required + friendly message + redirect to the billing page."""
     friendly = {
-        "no_subscription": "Aapke hospital ki koi active subscription nahi hai.",
-        "subscription_cancelled": "Subscription cancel ho chuki hai.",
-        "subscription_expired": "Subscription expire ho gayi hai.",
-        "subscription_halted": "Payment failures ki wajah se subscription halted hai.",
-        "subscription_past_due": "Payment pending hai - kripya payment complete karo.",
-        "not_in_plan": f"Yeh feature ({feature}) aapke current plan mein nahi hai.",
-    }.get(reason, "Yeh feature abhi available nahi hai.")
+        "no_subscription": "Your hospital has no active subscription.",
+        "subscription_cancelled": "The subscription has been cancelled.",
+        "subscription_expired": "The subscription has expired.",
+        "subscription_halted": "The subscription is halted due to payment failures.",
+        "subscription_past_due": "Payment is pending - please complete the payment.",
+        "not_in_plan": f"This feature ({feature}) is not in your current plan.",
+    }.get(reason, "This feature is not available right now.")
 
     if getattr(request, "accepts_html", True) and not request.path.startswith("/api/"):
-        messages.warning(request, f"{friendly} Plan upgrade karo.")
+        messages.warning(request, f"{friendly} Please upgrade your plan.")
         return redirect("subscriptions:billing")
     from django.http import JsonResponse
 
@@ -112,7 +112,7 @@ def _deny_response(request, feature, reason):
 
 
 def feature_required(feature):
-    """View decorator - plan mein feature na ho to 402 / upgrade redirect."""
+    """View decorator - if the plan lacks the feature -> 402 / upgrade redirect."""
 
     def decorator(view_func):
         @wraps(view_func)
@@ -128,7 +128,7 @@ def feature_required(feature):
 
 
 class FeatureRequiredMixin:
-    """CBV ke liye: `required_feature = "api_access"`"""
+    """For CBVs: `required_feature = "api_access"`"""
 
     required_feature = None
 
@@ -143,7 +143,7 @@ class FeatureRequiredMixin:
 
 class LimitRequiredMixin:
     """
-    Create-views ke liye: plan ka numeric limit check.
+    For create-views: the plan's numeric limit check.
         class PatientCreate(LimitRequiredMixin, ...):
             limit_attr = "patient_limit"
             def count_existing(self, request): return Patient.objects.count()
@@ -151,7 +151,7 @@ class LimitRequiredMixin:
 
     limit_attr = None
 
-    def count_existing(self, request):  # pragma: no cover - subclass override karta hai
+    def count_existing(self, request):  # pragma: no cover - overridden by the subclass
         raise NotImplementedError
 
     def dispatch(self, request, *args, **kwargs):
@@ -161,7 +161,7 @@ class LimitRequiredMixin:
                 if reason == "limit_reached":
                     messages.error(
                         request,
-                        f"Aapke plan ki limit {limit} hai - pehle plan upgrade karo.",
+                        f"Your plan's limit is {limit} - please upgrade your plan first.",
                     )
                     return redirect("subscriptions:billing")
                 return _deny_response(request, self.limit_attr, reason)

@@ -1,100 +1,102 @@
 # Phase 1 — Multi-Tenancy
 
-Tenant = **`Hospital`**. Har business record pe `hospital` FK hai, aur default
-manager har query ko current tenant tak limit karta hai.
+Tenant = **`Hospital`**. Every business record has a `hospital` FK, and the
+default manager limits every query to the current tenant.
 
-> **Production pe apply karne ka order (skip mat karna):**
+> **Order to apply on production (do not skip):**
 > ```bash
-> ./deploy/backup_db.sh --tag pre-phase1     # 1. backup (wajib)
-> python manage.py preflight                 # 2. gate green ho
-> python manage.py migrate --plan            # 3. kya chalega dekho
+> ./deploy/backup_db.sh --tag pre-phase1     # 1. backup (mandatory)
+> python manage.py preflight                 # 2. gate must be green
+> python manage.py migrate --plan            # 3. preview what will run
 > python manage.py migrate                   # 4. apply
 > python manage.py preflight --census        # 5. tenant breakdown + data intact
 > ```
 
 ---
 
-## 1.1 Kya bana
+## 1.1 What was built
 
-### `tenants` app (naya)
+### `tenants` app (new)
 
-| File | Kaam |
+| File | Purpose |
 |---|---|
 | `tenants/models.py` | `Hospital` model + `TenantModel` abstract base (hospital FK, scoped managers, `ensure_hospital()`) |
 | `tenants/managers.py` | `TenantQuerySet` / `TenantManager` (default, auto-scoped) + `UnscopedManager` (`all_objects`) |
 | `tenants/context.py` | Thread-local current tenant, `tenant_context()`, `all_tenants()`, request-active flag |
-| `tenants/middleware.py` | `TenantMiddleware` — subdomain → Hospital resolve, session/user fallback, cross-tenant block |
-| `tenants/backends.py` | `TenantModelBackend` (tenant ke andar authenticate) + `TenantAwareModelBackend` (tenant active ho to khud ko disable) |
-| `tenants/forms.py` | `TenantModelForm` / `TenantFormMixin` — FK dropdowns request-time pe re-scope |
-| `tenants/admin_mixins.py` | `TenantAdminMixin` — admin tenant-scoped, FK dropdowns scoped, hospital field readonly |
+| `tenants/middleware.py` | `TenantMiddleware` — subdomain → Hospital resolution, session/user fallback, cross-tenant block |
+| `tenants/backends.py` | `TenantModelBackend` (authenticates within a tenant) + `TenantAwareModelBackend` (disables itself when a tenant is active) |
+| `tenants/forms.py` | `TenantModelForm` / `TenantFormMixin` — FK dropdowns re-scope at request time |
+| `tenants/admin_mixins.py` | `TenantAdminMixin` — admin is tenant-scoped, FK dropdowns scoped, hospital field readonly |
 | `tenants/views.py` + `urls.py` | `/healthz` (tenant-exempt) |
-| `tenants/management/commands/provision_tenant.py` | Naya hospital + uska ADMIN login ek command mein |
+| `tenants/management/commands/provision_tenant.py` | A new hospital + its ADMIN login in a single command |
 
 ### Tenant resolution (chosen mode: **subdomain**)
 
 ```
-acme.tumhara-domain.com   ->  Hospital(slug='acme')
+acme.your-domain.com   ->  Hospital(slug='acme')
 ```
 
-Order: **subdomain → session (`hospital_slug`) → logged-in user ka hospital**.
+Order: **subdomain → session (`hospital_slug`) → the logged-in user's hospital**.
 
-Settings (sab `.env` se):
+Settings (all from `.env`):
 
-| Var | Default | Matlab |
+| Var | Default | Meaning |
 |---|---|---|
-| `TENANCY_MODE` | `subdomain` | `subdomain` only (Phase 1 mein) |
-| `SAAS_ROOT_DOMAIN` | `localhost` | Root domain. `ALLOWED_HOSTS` mein `.<root>` wildcard apne aap add hota hai |
+| `TENANCY_MODE` | `subdomain` | `subdomain` only (in Phase 1) |
+| `SAAS_ROOT_DOMAIN` | `localhost` | Root domain. The `.<root>` wildcard is added to `ALLOWED_HOSTS` automatically |
 | `TENANCY_SESSION_KEY` | `hospital_slug` | Session fallback key |
-| `TENANT_REQUIRED` | `True` | Tenant na mile to login pe redirect |
-| `TENANT_EXEMPT_PATHS` | `/accounts/login/,/admin/login/,/healthz` | Yahan enforcement skip (context phir bhi set hota hai) |
-| `DEFAULT_HOSPITAL_NAME/SLUG` | `Default Hospital` / `default` | Backfill ka target |
+| `TENANT_REQUIRED` | `True` | Redirect to login when no tenant is found |
+| `TENANT_EXEMPT_PATHS` | `/accounts/login/,/admin/login/,/healthz` | Enforcement is skipped here (context is still set) |
+| `DEFAULT_HOSPITAL_NAME/SLUG` | `Default Hospital` / `default` | Target of the backfill |
 
 ### Data safety — 3-step migration
 
-Har app mein:
+In every app:
 
-1. `000X_*_hospital` → FK **nullable** add (existing rows block nahi hoti)
-2. `tenants.0002_assign_default_hospital` → **Default Hospital** create + saara purana
-   data assign (user-linked rows apne user ka hospital leti hain, child rows parent ka)
-3. `000Y_*_hospital_not_null` → pehle `verify_no_null_hospital()` chalta hai; **koi row
-   NULL bachi to migration RuntimeError ke saath RUK jaati hai** aur table+count batati hai
+1. `000X_*_hospital` → add the FK as **nullable** (existing rows are not blocked)
+2. `tenants.0002_assign_default_hospital` → create **Default Hospital** + assign
+   all pre-existing data (user-linked rows take their user's hospital, child rows
+   take their parent's)
+3. `000Y_*_hospital_not_null` → first `verify_no_null_hospital()` runs; **if any
+   row is still NULL the migration STOPS with a RuntimeError** and reports the
+   table + count
 
-Extra: `core.IDCounter` ab per-hospital hai aur purane counters Default Hospital pe move
-hote hain → `PAT-2026-0007` ke baad `0008` aayega, **numbering restart nahi hoti**.
-Naya hospital apni `0001` se shuru karta hai.
+Extra: `core.IDCounter` is now per-hospital and old counters are moved to
+Default Hospital → after `PAT-2026-0007` comes `0008`, **numbering does not
+restart**. A new hospital starts at its own `0001`.
 
 ### RBAC
 
-`role_required()` / `RoleRequiredMixin` ka **permission logic bilkul nahi badla**.
-Sirf ek extra check juda hai (`core.decorators.check_tenant`): user ka hospital ==
-request ka hospital, warna 403. Platform super-admin (`is_platform_admin=True`,
-`hospital=None`) exempt.
+The **permission logic of `role_required()` / `RoleRequiredMixin` did not change
+at all**. Only one extra check was added (`core.decorators.check_tenant`): the
+user's hospital must equal the request's hospital, otherwise 403. Platform
+super-admins (`is_platform_admin=True`, `hospital=None`) are exempt.
 
 ---
 
-## 1.2 Jo cheezein JAAN-BOOJH ke badli (breaking, par zaroori)
+## 1.2 Changes made DELIBERATELY (breaking, but necessary)
 
-| Change | Pehle | Ab | Kyun |
+| Change | Before | Now | Why |
 |---|---|---|---|
-| `User.username` | globally `unique=True` | `unique=False` + `UniqueConstraint(hospital, username)` | Warna do hospitals `admin` username share nahi kar sakte the |
-| `Patient.patient_id` | globally unique | `UniqueConstraint(hospital, patient_id)` | Har hospital ki apni `PAT-2026-0001` |
-| `Invoice.invoice_number` | globally unique | `UniqueConstraint(hospital, invoice_number)` | Wajah wahi |
-| `AUTHENTICATION_BACKENDS` | `ModelBackend` | `TenantModelBackend` + `TenantAwareModelBackend` | **Plain `ModelBackend` mat dalna** — woh global username lookup se doosre hospital ka user authenticate kar deta (test ne pakda) |
-| `Payment.transaction_id` | globally unique | **waisa hi** (UUID) | Koi zaroorat nahi thi |
+| `User.username` | globally `unique=True` | `unique=False` + `UniqueConstraint(hospital, username)` | Otherwise two hospitals could not both use the `admin` username |
+| `Patient.patient_id` | globally unique | `UniqueConstraint(hospital, patient_id)` | Every hospital gets its own `PAT-2026-0001` |
+| `Invoice.invoice_number` | globally unique | `UniqueConstraint(hospital, invoice_number)` | Same reason |
+| `AUTHENTICATION_BACKENDS` | `ModelBackend` | `TenantModelBackend` + `TenantAwareModelBackend` | **Do not add plain `ModelBackend`** — it authenticates a user from another hospital via global username lookup (a test caught this) |
+| `Payment.transaction_id` | globally unique | **unchanged** (UUID) | There was no need |
 
-Naya Django check warning jo ab dikhega (expected, harmless):
+A new Django check warning that now appears (expected, harmless):
 
 ```
 accounts.User: (auth.W004) 'User.username' is named as the 'USERNAME_FIELD', but it is not unique.
     HINT: Ensure that your authentication backend(s) can handle non-unique usernames.
 ```
-→ Hum handle karte hain: `TenantModelBackend` tenant ke andar lookup karta hai.
+→ We handle this: `TenantModelBackend` performs the lookup within the tenant.
 
 ---
 
 ## 1.3 Files touched
 
-**Naye (48 files, `git status` se verified):**
+**New (48 files, verified with `git status`):**
 
 - `tenants/` app — 14 files: `__init__`, `apps`, `models`, `managers`, `context`,
   `middleware`, `backends`, `forms`, `admin`, `admin_mixins`, `views`, `urls`,
@@ -105,7 +107,7 @@ accounts.User: (auth.W004) 'User.username' is named as the 'USERNAME_FIELD', but
   `pharmacy/0004,0005`, `wards/0004,0005`
 - `tests/` — 6 files: `__init__`, `conftest`, `settings_test`,
   `test_tenant_isolation`, `test_core_flows`, `test_data_backfill`
-- Phase 0 se: `core/management/{__init__,commands/__init__,commands/preflight}.py`
+- From Phase 0: `core/management/{__init__,commands/__init__,commands/preflight}.py`
 - Config/docs — `pytest.ini`, `requirements-dev.txt`, `docs/MIGRATION_PLAN.md`,
   `docs/PHASE_0_SAFETY.md`, `docs/PHASE_1_MULTITENANCY.md`
 
@@ -115,46 +117,46 @@ tenant settings, wildcard ALLOWED_HOSTS), `hospital_system/urls.py` (healthz),
 signals, decorators, middleware), `patients|doctors|appointments|billing|pharmacy|wards`
 (models + forms + admin), `.env.example`, `.gitignore`, `deploy/backup_db.sh`.
 
-**Deleted (144):** `hospital_system_delivery/` (purana duplicate copy — approved).
+**Deleted (144):** `hospital_system_delivery/` (old duplicate copy — approved).
 
 ---
 
-## 1.4 Verify kya hua (is sandbox mein, Django 5.2.17 pe)
+## 1.4 What was verified (in this sandbox, on Django 5.2.17)
 
 ```
 $ python -m pytest tests/ -q
 33 passed
 
 $ python -m pytest tests/ --cov=. -q        →  TOTAL 75%
-$ python manage.py migrate                  →  sab migrations OK (fresh DB)
+$ python manage.py migrate                  →  all migrations OK (fresh DB)
 $ python manage.py makemigrations --check   →  No changes detected
-$ python manage.py preflight --census       →  ✓ secrets / DB / migrations, tenant breakdown dikhta hai
+$ python manage.py preflight --census       →  ✓ secrets / DB / migrations, tenant breakdown visible
 ```
 
 Test files:
 
-| File | Tests | Kya cover |
+| File | Tests | Coverage |
 |---|---|---|
 | `tests/test_tenant_isolation.py` | 16 | **ORM scoping, HTTP 404/403, cross-tenant login block, per-hospital staff list** |
 | `tests/test_core_flows.py` | 9 | RBAC (403/200), appointment booking + double-book reject, invoice→payment→**PDF**, per-hospital ID sequence |
-| `tests/test_data_backfill.py` | 8 | Legacy NULL rows → Default Hospital, idempotent, **ID sequence 0007→0008 (restart nahi)**, superuser NULL rehta hai, NOT NULL safety check |
+| `tests/test_data_backfill.py` | 8 | Legacy NULL rows → Default Hospital, idempotent, **ID sequence 0007→0008 (no restart)**, superuser stays NULL, NOT NULL safety check |
 
 ---
 
-## 1.5 Jo verify NAHI ho saka (honest)
+## 1.5 What could NOT be verified (honest)
 
-1. **Django 6.0.6 / Python 3.12 pe nahi chala** — sandbox mein Python 3.11.2 hai.
-   Saara verification Django **5.2.17** pe hua. Tumhe Python 3.12 pe
-   `pip install -r requirements.txt && pytest` chalana chahiye.
-2. **PostgreSQL pe migrations test nahi hue** — yahan sirf SQLite. `ALTER TABLE
-   ... SET NOT NULL` Postgres pe table lock karta hai; badi table ho to
-   maintenance window mein chalao.
-3. **Real wildcard DNS / Render subdomain routing test nahi hua** — uske liye
-   `*.tumhara-domain.com` ka DNS + Render custom domain chahiye.
+1. **Not run on Django 6.0.6 / Python 3.12** — the sandbox has Python 3.11.2.
+   All verification was done on Django **5.2.17**. You should run
+   `pip install -r requirements.txt && pytest` on Python 3.12.
+2. **Migrations not tested on PostgreSQL** — only SQLite here. `ALTER TABLE
+   ... SET NOT NULL` takes a table lock on Postgres; run it in a maintenance
+   window if the table is large.
+3. **Real wildcard DNS / Render subdomain routing not tested** — that requires
+   DNS for `*.your-domain.com` + a Render custom domain.
 
 ---
 
-## 1.6 Tumhe manually kya test karna hai
+## 1.6 What you need to test manually
 
 ```bash
 # 0) Backup
@@ -163,37 +165,38 @@ Test files:
 # 1) Migrate
 python manage.py migrate
 
-# 2) Purana data Default Hospital mein gaya confirm karo
+# 2) Confirm the old data landed in Default Hospital
 python manage.py preflight --census      # "TENANT BREAKDOWN: default  <counts>"
 
-# 3) Doosra tenant banao (hosts file mein `127.0.0.1 acme.localhost` add karo)
+# 3) Create a second tenant (add `127.0.0.1 acme.localhost` to your hosts file)
 python manage.py provision_tenant --name "Acme Hospital" --slug acme \
     --admin-username acme-admin --admin-email admin@acme.test --admin-password 'StrongPass!23'
 
-# 4) Purana system abhi bhi chal raha hai (regression)
-#    http://default.localhost:8000/  pe purana admin login -> data wahi dikhega
-#    login (5 galat password -> axes lockout), patient register, appointment,
+# 4) The old system still works (regression)
+#    log in with the old admin at http://default.localhost:8000/ -> same data
+#    login (5 wrong passwords -> axes lockout), patient register, appointment,
 #    invoice + PDF download, Admin > Audit Log
 
-# 5) Tenant isolation khud dekho
-#    http://acme.localhost:8000/  pe acme-admin se login -> KHAALI dashboard
-#    acme ke login se default.localhost kholo -> 403
-#    default ka admin acme.localhost pe login kare -> "Invalid username or password"
+# 5) See tenant isolation for yourself
+#    log in as acme-admin at http://acme.localhost:8000/ -> EMPTY dashboard
+#    open default.localhost with an acme login -> 403
+#    log in as the default admin on acme.localhost -> "Invalid username or password"
 ```
 
 ---
 
-## 1.7 Phase 2 se pehle jo bacha hai (jaan-na zaroori)
+## 1.7 What remains before Phase 2 (must-know)
 
-1. **Related managers auto-scope nahi hote.** `patient.admissions.all()`,
-   `invoice.items.all()` jaise reverse relations parent se traverse hote hain —
-   parent khud scoped hai isliye leak nahi, par naya code likhte waqt
-   `Model.objects` hi use karo. (6 jagah identified: `billing/models.py:36,40`,
+1. **Related managers are not auto-scoped.** Reverse relations like
+   `patient.admissions.all()`, `invoice.items.all()` traverse from the parent —
+   the parent is itself scoped, so there is no leak, but new code should use
+   `Model.objects`. (6 places identified: `billing/models.py:36,40`,
    `billing/pdf_utils.py:38,62`, `patients/views.py:53`, `pharmacy/models.py:50`.)
-2. **Django admin** platform super-admin ke liye cross-tenant hai; tenant staff ke
-   liye scoped. `createsuperuser` se banne wala user `hospital=None` +
-   `is_platform_admin=False` hota hai — usse admin mein `is_platform_admin` tick karo.
-3. **`runtime.txt` abhi bhi nahi hai** — Render pe Python 3.12 pin karna zaroori
-   hai (Phase 0 wali note).
-4. **Phase 2 ke liye:** `Subscription.hospital` FK isi `Hospital` model pe banega,
-   aur feature-gating decorator `request.hospital` se plan padhega.
+2. **Django admin** is cross-tenant for platform super-admins; scoped for tenant
+   staff. A user created with `createsuperuser` gets `hospital=None` +
+   `is_platform_admin=False` — tick `is_platform_admin` for them in admin.
+3. **`runtime.txt` is still missing** — pinning Python 3.12 on Render is
+   required (see the Phase 0 note).
+4. **For Phase 2:** `Subscription.hospital` FK will be built on this `Hospital`
+   model, and the feature-gating decorator will read the plan from
+   `request.hospital`.

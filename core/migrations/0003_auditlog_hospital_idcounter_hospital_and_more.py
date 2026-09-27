@@ -17,12 +17,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='auditlog',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Kis hospital ka record touch hua - tenant-wise audit trail filter ke liye', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='audit_logs', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text="Which hospital's record was touched - for tenant-wise audit trail filtering", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='audit_logs', to='tenants.hospital'),
         ),
         migrations.AddField(
             model_name='idcounter',
             name='hospital',
-            field=models.ForeignKey(blank=True, help_text='Null = legacy/platform counter (multi-tenant se pehle ka)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='id_counters', to='tenants.hospital'),
+            field=models.ForeignKey(blank=True, help_text='Null = legacy/platform counter (from before multi-tenancy)', null=True, on_delete=django.db.models.deletion.CASCADE, related_name='id_counters', to='tenants.hospital'),
         ),
         migrations.AlterField(
             model_name='idcounter',

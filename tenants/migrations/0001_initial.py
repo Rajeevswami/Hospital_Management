@@ -15,9 +15,9 @@ class Migration(migrations.Migration):
             name='Hospital',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('name', models.CharField(help_text='Hospital ka display naam', max_length=150)),
-                ('slug', models.SlugField(help_text="Subdomain - acme.example.com ke liye 'acme'. Lowercase, no spaces.", max_length=63, unique=True)),
-                ('is_active', models.BooleanField(default=True, help_text='False = subscription lapse / suspend. Login block ho jaata hai, data safe rehta hai.')),
+                ('name', models.CharField(help_text='Display name of the hospital', max_length=150)),
+                ('slug', models.SlugField(help_text="Subdomain - 'acme' for acme.example.com. Lowercase, no spaces.", max_length=63, unique=True)),
+                ('is_active', models.BooleanField(default=True, help_text='False = subscription lapse / suspended. Login is blocked, data stays safe.')),
                 ('contact_email', models.EmailField(blank=True, max_length=254)),
                 ('contact_phone', models.CharField(blank=True, max_length=15)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),

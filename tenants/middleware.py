@@ -1,15 +1,15 @@
 """
-TenantMiddleware - request se current Hospital resolve karta hai.
+TenantMiddleware - resolves the current Hospital from the request.
 
 Resolution order (TENANCY_MODE=subdomain):
-  1. Host ka pehla label  -> acme.hospitalsaas.in  =>  slug 'acme'
-  2. Session fallback     -> user ne pehle login kiya tha, ab root domain pe aaya
+  1. First label of the Host  -> acme.hospitalsaas.in  =>  slug 'acme'
+   2. Session fallback     -> the user logged in earlier, now on the root domain
   3. Logged-in user       -> request.user.hospital (direct IP / preview host cases)
 
-Iske baad:
+After that:
   * request.hospital set
-  * tenant context set (taaki Model.objects khud scope ho jaaye)
-  * doosre tenant ka data maanga -> 404
+  * tenant context set (so Model.objects scopes itself)
+  * data from another tenant requested -> 404
 """
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
@@ -23,8 +23,8 @@ from .context import (
 )
 from .models import Hospital
 
-# In paths pe tenant zaroori nahi (login page root domain pe bhi khulna chahiye,
-# health check, static/media). Prefix match hota hai.
+# Tenant is not required on these paths (the login page must open on the root
+# domain too, health check, static/media). Prefix match.
 DEFAULT_EXEMPT_PREFIXES = (
     "/static/",
     "/media/",
@@ -33,7 +33,7 @@ DEFAULT_EXEMPT_PREFIXES = (
 
 
 class TenantMiddleware:
-    """MUST be placed after AuthenticationMiddleware (request.user chahiye)."""
+    """MUST be placed after AuthenticationMiddleware (request.user is needed)."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -44,20 +44,20 @@ class TenantMiddleware:
         mark_request_started()
         request.hospital = None
 
-        # Tenant HAMESHA resolve karo - login page pe bhi chahiye, warna
-        # authenticate() ko pata hi nahi chalega ki kaunsa hospital hai.
+        # ALWAYS resolve the tenant - also on the login page, otherwise
+        # authenticate() will not even know which hospital it is.
         hospital, reason = self.resolve(request)
         request.hospital = hospital
         request.tenant_source = reason
         set_current_hospital(hospital)
-        # Tenant ko session mein yaad rakho - login page pe bhi, warna login ke
-        # baad user ko apne subdomain pe bhejne ka koi zariya nahi bachta.
+        # Remember the tenant in the session - also on the login page, otherwise
+        # after login there is no way to send the user to their subdomain.
         if hospital is not None:
             self._remember_in_session(request, hospital)
         try:
             if self._is_exempt(request.path):
-                # login / admin login / healthz: tenant context set hai (auth ke
-                # liye zaroori), par redirect/403 enforcement skip.
+                # login / admin login / healthz: tenant context is set (needed for
+                # auth), but redirect/403 enforcement is skipped.
                 return self.get_response(request)
             return self.process(request, hospital)
         finally:
@@ -69,15 +69,15 @@ class TenantMiddleware:
 
     # ---------------- resolution ----------------
     def resolve(self, request):
-        """(hospital, source) - source debug/logging ke liye."""
+        """(hospital, source) - source is for debugging/logging."""
         mode = getattr(settings, "TENANCY_MODE", "subdomain")
 
-        # Phase 4 (API): API clients ke liye subdomain hamesha possible nahi hota
-        # (Postman/localhost/mobile app). Isliye /api/ paths pe X-Hospital-Slug
-        # header bhi accept hota hai. Yeh safe hai kyunki:
-        #   * managers already tenant-scoped hain
-        #   * _guard_cross_tenant user ka hospital match karta hai
-        #   * JWT lookup bhi tenant-scoped manager se hota hai
+        # Phase 4 (API): a subdomain is not always possible for API clients
+        # (Postman/localhost/mobile app). That is why /api/ paths also accept the
+        # X-Hospital-Slug header. This is safe because:
+        #   * managers are already tenant-scoped
+        #   * _guard_cross_tenant matches the user's hospital
+        #   * the JWT lookup also goes through the tenant-scoped manager
         if request.path.startswith("/api/"):
             slug = request.headers.get("X-Hospital-Slug")
             if slug:
@@ -91,8 +91,8 @@ class TenantMiddleware:
                 try:
                     return Hospital.objects.get(slug=slug), "subdomain"
                 except Hospital.DoesNotExist:
-                    # Unknown subdomain - neeche session/user fallback try karo,
-                    # warna platform ke root domain pe kaam nahi chalega.
+                    # Unknown subdomain - try the session/user fallback below,
+                    # otherwise nothing works on the platform's root domain.
                     pass
 
         session_key = getattr(settings, "TENANCY_SESSION_KEY", "hospital_slug")
@@ -120,7 +120,7 @@ class TenantMiddleware:
             return None
         if host.endswith("." + root):
             label = host[: -(len(root) + 1)]
-            # nested subdomain (a.b.example.com) support nahi - sirf ek level
+            # nested subdomains (a.b.example.com) are not supported - one level only
             return label if "." not in label else None
         return None
 
@@ -130,7 +130,7 @@ class TenantMiddleware:
         user = getattr(request, "user", None)
         is_authenticated = bool(user is not None and getattr(user, "is_authenticated", False))
 
-        # Platform super-admin (hospital=None) tenant ke bina bhi ghoom sakta hai
+        # A platform super-admin (hospital=None) can browse without a tenant
         if is_authenticated and getattr(user, "is_platform_admin", False) and user.hospital_id is None:
             return self.get_response(request)
 
@@ -138,19 +138,19 @@ class TenantMiddleware:
             if not required:
                 return self.get_response(request)
             if self._is_api(request):
-                # HTML login redirect API client ke liye bekaar hai - saaf 401 bhejo
+                # an HTML login redirect is useless for an API client - send a clean 401
                 return self._json_error(
                     request, 401,
-                    "Tenant resolve nahi hua. Subdomain use karo "
-                    "(acme.example.com/api/...) ya X-Hospital-Slug header bhejo.",
+                    "Tenant could not be resolved. Use a subdomain "
+                    "(acme.example.com/api/...) or send the X-Hospital-Slug header.",
                 )
             if is_authenticated:
-                # Logged-in user root domain pe aa gaya - uske tenant pe bhej do
+                # A logged-in user landed on the root domain - send them to their tenant
                 user_hospital = getattr(user, "hospital", None)
                 if user_hospital and getattr(settings, "TENANCY_MODE", "subdomain") == "subdomain":
                     return redirect(user_hospital.public_url(request) + request.get_full_path())
                 raise PermissionDenied("No hospital is associated with your account.")
-            # Anonymous + no tenant -> login page (root domain pe)
+            # Anonymous + no tenant -> login page (on the root domain)
             return self._login_redirect(request)
 
         if not hospital.is_active:
@@ -170,9 +170,9 @@ class TenantMiddleware:
         login_url = getattr(_s, "LOGIN_URL", "/accounts/login/")
         if request.path.startswith(login_url.rstrip("/")):
             return self.get_response(request)
-        # NOTE: login_url ek VIEW NAME ho sakta hai ('accounts:login'), isliye
-        # pehle reverse karo aur query string BAAD mein jodo. Seedha
-        # redirect('accounts:login?next=/x') dene se DisallowedRedirect aata hai.
+        # NOTE: login_url can be a VIEW NAME ('accounts:login'), so reverse it
+        # first and append the query string AFTERWARDS. Calling
+        # redirect('accounts:login?next=/x') directly raises DisallowedRedirect.
         target = login_url
         if "://" not in login_url and not login_url.startswith("/"):
             from django.urls import NoReverseMatch, reverse
@@ -203,9 +203,9 @@ class TenantMiddleware:
 
     def _guard_cross_tenant(self, request, user, hospital):
         """
-        Defense in depth: agar koi user hospital A ka hai aur hospital B ke
-        subdomain pe request bhej de -> 404 (data ka pata bhi na chale).
-        Managers already scoped hain; yeh sirf extra diwaar hai.
+        Defense in depth: if a user belongs to hospital A and sends a request to
+        hospital B's subdomain -> 404 (the data's existence is not even revealed).
+        Managers are already scoped; this is just an extra wall.
         """
         if user is None or not getattr(user, "is_authenticated", False):
             return
@@ -213,8 +213,8 @@ class TenantMiddleware:
             return
         user_hospital_id = getattr(user, "hospital_id", None)
         if user_hospital_id is not None and user_hospital_id != hospital.pk:
-            # Doosre tenant ka user yahan aa gaya. Data to managers already rok
-            # rahe hain; yahan sirf request aage na badhe isliye 403.
+            # A user from another tenant got here. The managers already stop the
+            # data; 403 is here only so the request does not proceed.
             if self._is_api(request):
                 return self._json_error(
                     request, 403, "You are signed in to a different hospital."
@@ -223,6 +223,6 @@ class TenantMiddleware:
 
 
 def is_exempt_path(path, extra=()):
-    """Utility - tests mein middleware behaviour check karne ke liye."""
+    """Utility - for checking middleware behaviour in tests."""
     prefixes = tuple(extra) + DEFAULT_EXEMPT_PREFIXES
     return any(path.startswith(p) for p in prefixes)

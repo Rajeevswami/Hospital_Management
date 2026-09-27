@@ -1,8 +1,8 @@
 """
-Razorpay se subscription status sync karo.
+Sync subscription status from Razorpay.
 
-Webhook miss ho jaaye (server down, network) to yeh command reconciliation karti
-hai. Cron pe laga do:
+If a webhook is missed (server down, network), this command does the
+reconciliation. Put it on cron:
     */15 * * * * python manage.py sync_subscriptions
 """
 from django.core.management.base import BaseCommand
@@ -13,15 +13,15 @@ from subscriptions.models import Subscription
 
 
 class Command(BaseCommand):
-    help = "Razorpay se pending/active subscriptions ka status sync karo."
+    help = "Sync the status of pending/active subscriptions from Razorpay."
 
     def add_arguments(self, parser):
-        parser.add_argument("--all", action="store_true", help="Accessible sab subscriptions (default: sirf non-terminal)")
+        parser.add_argument("--all", action="store_true", help="All accessible subscriptions (default: only non-terminal)")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args, **opts):
         if not rzp.is_configured():
-            self.stderr.write(self.style.ERROR("Razorpay configured nahi hai."))
+            self.stderr.write(self.style.ERROR("Razorpay is not configured."))
             return
 
         qs = Subscription.all_objects.all() if opts["all"] else Subscription.all_objects.filter(

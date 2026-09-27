@@ -13,13 +13,13 @@ class AppointmentRiskAdmin(TenantAdminMixin, admin.ModelAdmin):
     readonly_fields = ("score", "level", "engine", "reasons", "model_version", "computed_at")
 
     def has_add_permission(self, request):
-        return False  # score sirf engine compute karta hai
+        return False  # the score is computed by the engine only
 
 
 @admin.register(NoShowModelArtifact)
 class NoShowModelArtifactAdmin(admin.ModelAdmin):
-    # Platform-level: model artifacts ka hospital NULL ho sakta hai, isliye
-    # TenantAdminMixin yahan nahi - superuser/platform admin dekhega.
+    # Platform-level: a model artifact's hospital can be NULL, so there is no
+    # TenantAdminMixin here - the superuser/platform admin will see it.
     list_display = ("version", "hospital", "algorithm", "training_rows",
                     "positive_rate", "is_active", "trained_at")
     list_filter = ("is_active", "algorithm")

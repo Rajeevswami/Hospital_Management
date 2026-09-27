@@ -1,10 +1,10 @@
 """
-Appointment create hone pe async risk scoring trigger.
+Triggers async risk scoring when an appointment is created.
 
 Do safety rules:
-  1. `dispatch_uid` - signal dobara register na ho (dev server reload pe)
-  2. poora handler try/except mein - ML/Celery ki wajah se appointment create
-     KABHI fail nahi hona chahiye
+  1. `dispatch_uid` - so the signal is not registered twice (on dev server reload)
+  2. the whole handler is in try/except - appointment creation must NEVER
+     fail because of ML/Celery
 """
 import logging
 
@@ -26,12 +26,12 @@ def score_on_appointment_create(sender, instance, created, **kwargs):
     from .tasks import score_appointment_task
 
     try:
-        # ALWAYS_EAGER=True (local/tests) par yeh turant chalta hai, warna queue mein
+        # with ALWAYS_EAGER=True (local/tests) this runs immediately, otherwise it is queued
         score_appointment_task.delay(instance.pk)
     except Exception:
-        # Broker down ho ya kuch bhi - appointment booking break nahi honi chahiye
+        # Whether the broker is down or anything else - appointment booking must not break
         logger.exception(
-            "Risk scoring enqueue nahi ho paya (appointment %s). "
-            "`manage.py score_appointments` se baad mein kar sakte ho.",
+            "Could not enqueue risk scoring (appointment %s). "
+            "You can backfill later with `manage.py score_appointments`.",
             instance.pk,
         )

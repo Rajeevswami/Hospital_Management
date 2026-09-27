@@ -9,8 +9,8 @@
       <div class="card-body">
         <p>Plan: <strong>{{ subscription.plan.name }}</strong>
            (&#8377;{{ subscription.plan.price }} / {{ subscription.plan.interval }})</p>
-        <p class="text-muted small">Payment Razorpay ke secure checkout pe hoga. Recurring
-          subscription hai - har period pe automatically charge hoga, jab chahe cancel kar sakte ho.</p>
+        <p class="text-muted small">Payment happens on Razorpay's secure checkout. This is a recurring
+          subscription - it is charged automatically every period, and you can cancel anytime.</p>
         <button id="rzp-pay" class="btn btn-primary">Pay with Razorpay</button>
         <a href="{% url 'subscriptions:billing' %}" class="btn btn-link">Cancel</a>
       </div>
@@ -19,11 +19,11 @@
 </div>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-{# json_script data ko <script type="application/json"> mein safe-escape karke daalta hai #}
+{# json_script safely escapes the data into a <script type="application/json"> tag #}
 {{ checkout|json_script:"rzp-data" }}
 <script>
 (function () {
-  // checkout data server se aaya hai (public key only - secret kabhi nahi)
+  // the checkout data comes from the server (public key only - never a secret)
   const data = JSON.parse(document.getElementById('rzp-data').textContent);
   document.getElementById('rzp-pay').addEventListener('click', function () {
     const rzp = new Razorpay({

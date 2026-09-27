@@ -1,39 +1,39 @@
 # Hospital Staff Handover Checklist
 
-Hospital ko handover karte waqt ye sab dena/batana hai:
+When handing the system over to a hospital, provide/explain all of the following:
 
-## 1. Login Credentials dena
-- [ ] Admin login (username + password) — ye unka main account hai
-- [ ] Doctor/Receptionist/Pharmacist accounts banao Admin panel se (Staff section)
-- [ ] **Pehli baar login ke baad password change karne ko bolo**
+## 1. Hand over login credentials
+- [ ] Admin login (username + password) — this is their main account
+- [ ] Create Doctor/Receptionist/Pharmacist accounts from the Admin panel (Staff section)
+- [ ] **Tell them to change the password after the first login**
 
-## 2. Initial Setup (pehli baar karna hai)
-- [ ] Django Admin (`/admin/`) se Wards aur Beds add karo (General Ward, ICU, etc + bed numbers)
-- [ ] Doctors add karo "Doctors" section se (login + specialization + fee)
-- [ ] Medicines add karo "Pharmacy" section se (stock quantity sahi se daalo)
+## 2. Initial setup (one-time)
+- [ ] Add Wards and Beds from Django Admin (`/admin/`) (General Ward, ICU, etc. + bed numbers)
+- [ ] Add Doctors from the "Doctors" section (login + specialization + fee)
+- [ ] Add Medicines from the "Pharmacy" section (enter stock quantities carefully)
 
-## 3. Daily Use Training (staff ko ye dikhana hai)
-- [ ] **Receptionist**: Naya patient register karna, appointment book karna, admit karna
-- [ ] **Doctor**: Apne appointments dekhna, prescription banana
-- [ ] **Pharmacist**: Medicine stock update karna, low-stock alerts dekhna
-- [ ] **Admin/Receptionist**: Invoice banana, payment record karna, PDF bill download karna
+## 3. Daily use training (show this to the staff)
+- [ ] **Receptionist**: registering a new patient, booking an appointment, admitting a patient
+- [ ] **Doctor**: viewing their appointments, creating a prescription
+- [ ] **Pharmacist**: updating medicine stock, viewing low-stock alerts
+- [ ] **Admin/Receptionist**: creating an invoice, recording a payment, downloading the PDF bill
 
-## 4. Important Notes for Hospital
-- Patient ID automatic generate hota hai (PAT-2026-0001 format) — manually mat banana
-- Invoice number bhi automatic hai (INV-2026-0001 format)
-- Ek baar discharge/complete kiya appointment dobara invoice mein nahi aayega (double-billing impossible hai)
-- Bed automatically free ho jaata hai discharge karne par
+## 4. Important notes for the hospital
+- Patient IDs are generated automatically (PAT-2026-0001 format) — do not create them manually
+- Invoice numbers are automatic too (INV-2026-0001 format)
+- Once an appointment is discharged/completed it never appears in billing again (double-billing is impossible)
+- The bed is freed automatically on discharge
 
-## 5. Data Safety
-- Database har raat 2 AM automatically backup hota hai (14 din tak)
-- Backup files yahan milengi: `/var/backups/hospital_system/`
-- Agar koi important data accidentally delete ho jaaye, backup se restore kiya ja sakta hai (developer se contact karo)
+## 5. Data safety
+- The database is backed up automatically every night at 2 AM (retained for 14 days)
+- Backup files can be found at: `/var/backups/hospital_system/`
+- If important data is deleted accidentally, it can be restored from a backup (contact the developer)
 
 ## 6. Support
-- Koi bug ya issue aaye to error message ka screenshot le ke developer ko bhejo
-- Server "down" lage to pehle check karo: domain khul raha hai ya nahi, dusre device se try karo
+- If a bug or issue occurs, take a screenshot of the error message and send it to the developer
+- If the server seems "down", first check whether the domain opens at all, and try from another device
 
-## 7. Future Scope (agar aage chahiye)
+## 7. Future scope (if needed later)
 - SMS/WhatsApp appointment reminders
 - Lab reports module
-- Multi-branch support (agar hospital ki dusri branch ho)
+- Multi-branch support (if the hospital has other branches)

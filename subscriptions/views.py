@@ -1,9 +1,9 @@
 """
 Phase 2 views: billing/upgrade page, Razorpay checkout, webhook.
 
-Webhook /saas/webhook/ pe hai aur TENANT_EXEMPT_PATHS mein hona chahiye -
-Razorpay ke request mein koi subdomain/session nahi hota, aur signature se
-verify hota hai (tenant se nahi).
+The webhook is at /saas/webhook/ and must be in TENANT_EXEMPT_PATHS -
+a Razorpay request has no subdomain/session, and it is verified by the
+signature (not by a tenant).
 """
 import json
 import logging
@@ -59,10 +59,10 @@ def billing(request):
 @login_required
 @role_required("ADMIN")
 def start_checkout(request, plan_code):
-    """Razorpay subscription banao aur checkout page pe bhejo."""
+    """Create the Razorpay subscription and send the user to the checkout page."""
     hospital = getattr(request, "hospital", None)
     if hospital is None and not getattr(request.user, "is_platform_admin", False):
-        messages.error(request, "Koi hospital context nahi mila.")
+        messages.error(request, "No hospital context found.")
         return redirect("subscriptions:billing")
 
     plan = get_object_or_404(Plan, code=plan_code, is_active=True)
@@ -93,18 +93,18 @@ def start_checkout(request, plan_code):
 @role_required("ADMIN")
 @require_POST
 def checkout_callback(request):
-    """Browser se aaya signature verify karo, phir subscription activate."""
+    """Verify the signature from the browser, then activate the subscription."""
     sub_id = request.POST.get("razorpay_subscription_id")
     payment_id = request.POST.get("razorpay_payment_id")
     signature = request.POST.get("razorpay_signature")
 
     if not rzp.verify_checkout_signature(sub_id, payment_id, signature):
-        messages.error(request, "Payment signature verify nahi hua - support se contact karo.")
+        messages.error(request, "Payment signature could not be verified - please contact support.")
         return redirect("subscriptions:billing")
 
     sub = Subscription.all_objects.filter(razorpay_subscription_id=sub_id).first()
     if sub is None:
-        messages.error(request, "Subscription record nahi mila.")
+        messages.error(request, "Subscription record not found.")
         return redirect("subscriptions:billing")
 
     period_end = timezone.now() + timezone.timedelta(days=30)
@@ -115,7 +115,7 @@ def checkout_callback(request):
 
 @platform_admin_required
 def cancel(request):
-    """Platform admin kisi tenant ki subscription cancel kare."""
+    """A platform admin cancels a tenant's subscription."""
     sub = get_object_or_404(Subscription, pk=request.GET.get("id"))
     sub.status = Subscription.Status.CANCELLED
     sub.cancelled_at = timezone.now()
@@ -184,8 +184,8 @@ def _on_paused(event, sub, entity):
 
 def _epoch_to_dt(value):
     """Razorpay epoch seconds -> aware datetime.
-    NOTE: `django.utils.timezone.utc` Django 5.0 se removed hai, isliye
-    `datetime.timezone.utc` use karte hain."""
+    NOTE: `django.utils.timezone.utc` was removed in Django 5.0, so we use
+    `datetime.timezone.utc`."""
     if not value:
         return None
     try:
@@ -201,8 +201,8 @@ def razorpay_webhook(request):
     Razorpay webhook endpoint.
 
     Order matters:
-      1. raw body se signature verify (pehle) - fail to 400, kuch process nahi
-      2. PaymentEvent likho (event_id unique -> duplicate delivery ignore)
+      1. verify the signature against the raw body (first) - on failure 400, nothing is processed
+      2. write PaymentEvent (event_id unique -> duplicate delivery ignored)
       3. Handler chalao
     """
     raw_body = request.body
@@ -230,7 +230,7 @@ def razorpay_webhook(request):
             defaults={"event_type": event_type, "payload": payload},
         )
         if not created:
-            # Razorpay same event dobara bhej sakta hai - dobara process nahi karna
+            # Razorpay can send the same event again - do not process it twice
             return JsonResponse({"status": "duplicate, ignored"}, status=200)
 
         sub = None
@@ -271,5 +271,5 @@ def razorpay_webhook(request):
 
 @csrf_exempt
 def webhook_probe(request):
-    """Health: webhook URL reachable hai ya nahi (GET pe signature check nahi hota)."""
+    """Health: whether the webhook URL is reachable (no signature check on GET)."""
     return HttpResponse("ok", content_type="text/plain")

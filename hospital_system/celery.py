@@ -1,10 +1,10 @@
 """
 Celery application (Phase 3).
 
-Broker: Redis (REDIS_URL / CELERY_BROKER_URL se). Local dev mein
-`CELERY_TASK_ALWAYS_EAGER=True` rakho to broker ke bina tasks sync chalte hain.
+Broker: Redis (from REDIS_URL / CELERY_BROKER_URL). In local dev,
+keep `CELERY_TASK_ALWAYS_EAGER=True` and tasks run synchronously without a broker.
 
-Worker chalane ka command:
+Command to run the worker:
     celery -A hospital_system worker -l info
 Beat (scheduled tasks, Phase 5+):
     celery -A hospital_system beat -l info
@@ -16,7 +16,7 @@ from celery import Celery
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hospital_system.settings")
 
 app = Celery("hospital_system")
-# settings.py ke CELERY_* variables yahan aa jaate hain (namespace='CELERY')
+# settings.py's CELERY_* variables are picked up here (namespace='CELERY')
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 

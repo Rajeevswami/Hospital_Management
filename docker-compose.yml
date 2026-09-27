@@ -3,7 +3,7 @@
 #   docker compose up --build
 #
 # Services: postgres, redis, web (gunicorn), celery worker
-# Sab kuch .env se configure hota hai (.env.example copy karo).
+# Everything is configured from .env (copy .env.example).
 # ---------------------------------------------------------------------------
 services:
   postgres:
@@ -12,7 +12,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-hospital_saas}
       POSTGRES_USER: ${POSTGRES_USER:-hospital}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD .env mein set karo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +40,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      # Compose ke andar service names hi hostnames hain
+      # Inside compose, service names double as hostnames
       DATABASE_URL: postgres://${POSTGRES_USER:-hospital}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hospital_saas}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
@@ -49,7 +49,7 @@ services:
     volumes:
       - static_files:/app/staticfiles
       - media_files:/app/media
-      # Trained ML models persist rakho (Render jaisi ephemeral FS pe zaroori)
+      # Persist trained ML models (required on ephemeral filesystems like Render)
       - ml_models:/app/ml_models
       - ./backups:/app/backups
     ports:
@@ -71,7 +71,7 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       CELERY_TASK_ALWAYS_EAGER: "False"
-      SKIP_MIGRATIONS: "1"          # migrations web container chalata hai
+      SKIP_MIGRATIONS: "1"          # migrations are run by the web container
     volumes:
       - ml_models:/app/ml_models
     depends_on:

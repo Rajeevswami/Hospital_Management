@@ -13,7 +13,7 @@ AUDITED_MODELS = [Patient, Admission, Prescription, Invoice, Payment]
 
 
 def _resolve_hospital(instance):
-    """Record ka hospital; fallback current request ka tenant (e.g. delete ke baad)."""
+    """The record's hospital; falls back to the current request's tenant (e.g. after a delete)."""
     hospital = getattr(instance, 'hospital', None)
     if hospital is not None:
         return hospital

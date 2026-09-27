@@ -18,8 +18,8 @@ class AuditContextMiddleware:
         try:
             return self.get_response(request)
         finally:
-            # Thread reuse (gunicorn worker) pe purana user/IP leak na ho -
-            # warna agla request doosre user ke naam se audit log likh sakta hai.
+            # So a stale user/IP cannot leak on thread reuse (gunicorn worker) -
+            # otherwise the next request could write an audit log under another user's name.
             audit_context.set_current_request(None, None)
 
 

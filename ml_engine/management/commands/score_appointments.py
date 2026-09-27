@@ -1,13 +1,13 @@
 """
-Existing appointments ke risk score compute karo (bulk).
+Compute risk scores for existing appointments (bulk).
 
-    python manage.py score_appointments                     # sirf SCHEDULED
-    python manage.py score_appointments --all               # sab status
+    python manage.py score_appointments                     # SCHEDULED only
+    python manage.py score_appointments --all               # all statuses
     python manage.py score_appointments --hospital acme
-    python manage.py score_appointments --async             # Celery queue mein daalo
+    python manage.py score_appointments --async             # push into the Celery queue
 
-Pehli baar setup ke baad yeh chalao, warna purane appointments ka score nahi hoga
-(signal sirf NAYE appointment pe chalta hai).
+Run this after the first setup, otherwise old appointments get no score
+(the signal only runs on NEW appointments).
 """
 from django.core.management.base import BaseCommand
 
@@ -17,14 +17,14 @@ from tenants.models import Hospital
 
 
 class Command(BaseCommand):
-    help = "Appointments ke no-show risk score compute karo."
+    help = "Compute no-show risk scores for appointments."
 
     def add_arguments(self, parser):
-        parser.add_argument("--hospital", help="Sirf is slug ka hospital")
-        parser.add_argument("--all", action="store_true", help="SCHEDULED ke alawa sab status")
+        parser.add_argument("--hospital", help="Only the hospital with this slug")
+        parser.add_argument("--all", action="store_true", help="All statuses except just SCHEDULED")
         parser.add_argument("--async", dest="use_async", action="store_true",
-                            help="Celery queue mein daalo (worker chalna chahiye)")
-        parser.add_argument("--limit", type=int, help="Sirf itne appointments")
+                            help="Push into the Celery queue (a worker must be running)")
+        parser.add_argument("--limit", type=int, help="Only this many appointments")
 
     def handle(self, *args, **opts):
         from appointments.models import Appointment

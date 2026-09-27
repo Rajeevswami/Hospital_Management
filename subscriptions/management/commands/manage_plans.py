@@ -1,11 +1,11 @@
 """
-Plan catalog seed/update karo.
+Seed/update the plan catalog.
 
     python manage.py manage_plans              # default 4 plans create/update
-    python manage.py manage_plans --list       # sirf dikhao
-    python manage.py manage_plans --ensure-razorpay   # Razorpay pe plans banao
+    python manage.py manage_plans --list       # just show them
+    python manage.py manage_plans --ensure-razorpay   # create the plans on Razorpay
 
-Idempotent hai - code ke basis pe update karta hai, duplicate nahi banata.
+It is idempotent - updates based on the code, does not create duplicates.
 """
 import json
 
@@ -35,21 +35,21 @@ DEFAULT_PLANS = [
 ]
 
 DESCRIPTIONS = {
-    "free": "Trial ke liye - 50 patients, 2 staff, core features.",
-    "starter": "Chhote clinic ke liye - reports ke saath.",
-    "growth": "Badhte hospital ke liye - SMS reminders + branding.",
+    "free": "For a trial - 50 patients, 2 staff, core features.",
+    "starter": "For a small clinic - with reports.",
+    "growth": "For a growing hospital - SMS reminders + branding.",
     "scale": "Multi-branch + AI no-show prediction + REST API.",
 }
 
 
 class Command(BaseCommand):
-    help = "Default SaaS plans seed/update karo."
+    help = "Seed/update the default SaaS plans."
 
     def add_arguments(self, parser):
-        parser.add_argument("--list", action="store_true", help="Sirf plans dikhao")
+        parser.add_argument("--list", action="store_true", help="Only show the plans")
         parser.add_argument("--ensure-razorpay", action="store_true",
-                            help="Har plan ke liye Razorpay pe plan banao (plan_id store hoga)")
-        parser.add_argument("--only", help="Sirf is code ka plan")
+                            help="Create a plan on Razorpay for every plan (plan_id will be stored)")
+        parser.add_argument("--only", help="Only the plan with this code")
 
     def handle(self, *args, **opts):
         if opts["list"]:
@@ -84,7 +84,7 @@ class Command(BaseCommand):
         if opts["ensure_razorpay"]:
             if not rzp.is_configured():
                 self.stderr.write(self.style.ERROR(
-                    "Razorpay keys set nahi hain - .env mein RAZORPAY_KEY_ID/SECRET daalo."
+                    "Razorpay keys are not set - put RAZORPAY_KEY_ID/SECRET in .env."
                 ))
                 return
             for plan in Plan.objects.active().exclude(price=0):

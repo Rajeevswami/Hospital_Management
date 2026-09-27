@@ -1,13 +1,13 @@
 """
-GradientBoosting model train karo aur joblib se save karo.
+Train the GradientBoosting model and save it with joblib.
 
-    python manage.py train_no_show                     # global model (sab hospitals)
-    python manage.py train_no_show --hospital acme     # sirf is hospital ke data pe
+    python manage.py train_no_show                     # global model (all hospitals)
+    python manage.py train_no_show --hospital acme     # only on this hospital's data
     python manage.py train_no_show --min-rows 100      # threshold override (testing)
-    python manage.py train_no_show --dry-run           # sirf readiness batao
+    python manage.py train_no_show --dry-run           # only report readiness
 
-Data kam ho to command fail NAHI hoti - clearly batati hai ki rule-based engine
-chalta rahega (yeh expected cold-start behaviour hai).
+If data is scarce the command does NOT fail - it clearly reports that the
+rule-based engine keeps running (this is the expected cold-start behaviour).
 """
 from django.core.management.base import BaseCommand
 
@@ -17,12 +17,12 @@ from tenants.models import Hospital
 
 
 class Command(BaseCommand):
-    help = "No-show GradientBoosting model train + save karo."
+    help = "Train + save the no-show GradientBoosting model."
 
     def add_arguments(self, parser):
         parser.add_argument("--hospital", help="Hospital slug (default: global model)")
         parser.add_argument("--min-rows", type=int, help="ML_MIN_TRAINING_ROWS override")
-        parser.add_argument("--dry-run", action="store_true", help="Train mat karo, sirf readiness")
+        parser.add_argument("--dry-run", action="store_true", help="Do not train, only report readiness")
 
     def handle(self, *args, **opts):
         hospital = None
@@ -30,7 +30,7 @@ class Command(BaseCommand):
             try:
                 hospital = Hospital.objects.get(slug=opts["hospital"])
             except Hospital.DoesNotExist:
-                self.stderr.write(self.style.ERROR(f"Hospital nahi mila: {opts['hospital']}"))
+                self.stderr.write(self.style.ERROR(f"Hospital not found: {opts['hospital']}"))
                 return
 
         info = readiness(hospital)
@@ -47,14 +47,14 @@ class Command(BaseCommand):
         if not info["ml_ready"]:
             self.stdout.write(self.style.WARNING(
                 f"\n  {info['verdict']}\n"
-                "  Rule-based engine (ml_engine.rules) chalta rahega - koi error nahi.\n"
-                "  Data badhne pe yeh command dobara chalao."
+                "  The rule-based engine (ml_engine.rules) keeps running - no error.\n"
+                "  Run this command again once the data grows."
             ))
             return
 
         result = train(hospital=hospital, min_rows=opts["min_rows"])
         if not result.get("ok"):
-            self.stdout.write(self.style.WARNING(f"\n  Train nahi hua: {result['reason']}"))
+            self.stdout.write(self.style.WARNING(f"\n  Not trained: {result['reason']}"))
             return
 
         metrics = result["metrics"]
@@ -64,5 +64,5 @@ class Command(BaseCommand):
         self.stdout.write(f"    precision@0.5   : {metrics.get('precision', 'n/a')}")
         self.stdout.write(f"    recall@0.5      : {metrics.get('recall', 'n/a')}")
         self.stdout.write(f"    baseline rate   : {metrics.get('baseline_no_show_rate', 'n/a')}")
-        self.stdout.write("    (AUC baseline 0.5 hota hai - usse kitna behtar, yeh fark batata hai)")
+        self.stdout.write("    (the AUC baseline is 0.5 - this difference shows how much better it is)")
         self.stdout.write(f"    file            : {result['artifact'].relative_path}")

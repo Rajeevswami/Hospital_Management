@@ -1,13 +1,13 @@
 """
-Current tenant (Hospital) ko request ke dauraan kahan rakha jaata hai.
+Where the current tenant (Hospital) is kept during a request.
 
-Do jagah set hota hai:
-  1. tenants.middleware.TenantMiddleware  -> har HTTP request pe (subdomain se)
+It is set in two places:
+  1. tenants.middleware.TenantMiddleware  -> on every HTTP request (from the subdomain)
   2. tenants.context.set_tenant()         -> Celery tasks / management commands / tests
 
-Manager (TenantQuerySet) yahin se current tenant padhta hai aur har query
-automatically usi hospital tak limit kar deta hai - views mein filter likhna
-bhool jaao to bhi doosre hospital ka data leak nahi hoga.
+The manager (TenantQuerySet) reads the current tenant from here and limits
+every query to that hospital automatically - even if you forget to write a
+filter in a view, another hospital's data cannot leak.
 """
 import contextlib
 import threading
@@ -18,7 +18,7 @@ _local = threading.local()
 
 
 def mark_request_started():
-    """TenantMiddleware har request pe call karta hai (exempt paths pe bhi)."""
+    """TenantMiddleware calls this on every request (also on exempt paths)."""
     _local.request_active = True
 
 
@@ -31,7 +31,7 @@ def is_request_active():
 
 
 def get_current_hospital():
-    """Current tenant Hospital instance, ya None (agar context set nahi hua)."""
+    """Current tenant Hospital instance, or None (if the context is not set)."""
     return getattr(_local, "hospital", None)
 
 
@@ -41,7 +41,7 @@ def get_current_hospital_id():
 
 
 def set_current_hospital(hospital):
-    """Explicitly set karo (Celery task / management command / test mein)."""
+    """Set it explicitly (in a Celery task / management command / test)."""
     _local.hospital = hospital
 
 
@@ -50,7 +50,7 @@ def clear_current_hospital():
 
 
 def is_tenant_enforced():
-    """False = tenant check skip (management commands, shell, platform admin tools)."""
+    """False = tenant checks are skipped (management commands, shell, platform admin tools)."""
     return getattr(_local, "enforce", True)
 
 
@@ -58,9 +58,9 @@ def is_tenant_enforced():
 def tenant_context(hospital, enforce=True):
     """
     with tenant_context(hospital):
-        Patient.objects.all()   # sirf isi hospital ke patients
+        Patient.objects.all()   # only this hospital's patients
 
-    Nested/re-entrant safe - bahar nikalte hi purana tenant wapas aa jaata hai.
+    Nested/re-entrant safe - the previous tenant is restored on exit.
     """
     previous_hospital = getattr(_local, "hospital", None)
     previous_enforce = getattr(_local, "enforce", True)
@@ -79,7 +79,7 @@ def all_tenants():
     with all_tenants():
         Patient.objects.all()   # tenant filter OFF (platform admin / reports)
 
-    NOTE: iska matlab cross-tenant read hai. Sirf platform-level code use kare.
+    NOTE: this means a cross-tenant read. Only platform-level code should use it.
     """
     with tenant_context(None, enforce=False):
         yield
@@ -87,14 +87,14 @@ def all_tenants():
 
 def require_current_hospital(model_label=""):
     """
-    Tenant zaroori ho wahan call karo. Context missing ho to loud error -
-    chup-chaap saara data dikha dena (ya khaali dikha dena) dono galat hain.
+    Call this where a tenant is required. If the context is missing, raise a
+    loud error - silently showing all data (or showing empty) are both wrong.
     """
     hospital = get_current_hospital()
     if hospital is None and is_tenant_enforced():
         raise ImproperlyConfigured(
             f"No tenant (Hospital) is active{f' for {model_label}' if model_label else ''}. "
-            "Request ke bahar `with tenant_context(hospital):` use karo, ya "
-            "`with all_tenants():` se explicitly cross-tenant read karo."
+            "Outside a request use `with tenant_context(hospital):`, or do an "
+            "explicit cross-tenant read with `with all_tenants():`."
         )
     return hospital

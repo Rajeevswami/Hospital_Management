@@ -11,18 +11,18 @@ venv/
 .DS_Store
 
 # ---- SaaS migration (Phase 0+) ----
-# NOTE: git mein trailing inline comments nahi chalte - comment apni line pe likho.
-# local DB dumps - kabhi commit nahi
+# NOTE: git does not support trailing inline comments - put comments on their own line.
+# local DB dumps - never commit these
 backups/
 # pg_dump custom-format backups
 *.dump
-# Phase 3: joblib model artifacts (regenerate hote hain, repo mein nahi jaayenge)
+# Phase 3: joblib model artifacts (regenerated, not committed to the repo)
 ml_models/
 # pytest coverage artifacts (Phase 5)
 .coverage
 coverage.xml
 htmlcov/
 .pytest_cache/
-# .env.production / .env.local etc - sirf .env.example track hota hai
+# .env.production / .env.local etc - only .env.example is tracked
 .env.*
 !.env.example

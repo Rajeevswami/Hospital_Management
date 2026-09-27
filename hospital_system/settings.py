@@ -16,31 +16,31 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ---------------- SECURITY ----------------
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-CHANGE-THIS-IN-PRODUCTION')
 DEBUG = config('DEBUG', default=False, cast=bool)
-# `.env` mein `ALLOWED_HOSTS=` (khaali) likha ho to python-decouple default nahi
-# deta - empty string deta hai, aur default '127.0.0.1,localhost' kho jaata tha
-# (phir http://127.0.0.1:8000 pe DisallowedHost 400). Blank = default maano.
+# If `.env` has `ALLOWED_HOSTS=` (blank), python-decouple does not return the
+# default - it returns an empty string, and the default '127.0.0.1,localhost'
+# was lost (then DisallowedHost 400 on http://127.0.0.1:8000). Treat blank as "use the default".
 _ALLOWED_HOSTS_RAW = config('ALLOWED_HOSTS', default='').strip()
 ALLOWED_HOSTS = Csv()(_ALLOWED_HOSTS_RAW or '127.0.0.1,localhost')
 
-# MULTI-TENANCY (Phase 1): subdomain scheme ke liye wildcard host chahiye,
-# warna Django har tenant subdomain pe DisallowedHost (400) dega.
+# MULTI-TENANCY (Phase 1): the subdomain scheme needs a wildcard host,
+# otherwise Django returns DisallowedHost (400) on every tenant subdomain.
 _SAAS_ROOT = config('SAAS_ROOT_DOMAIN', default='localhost').strip().lower()
 if _SAAS_ROOT:
-    # Django ka wildcard syntax: '.example.com' -> example.com AUR saare subdomains.
-    # ('*.example.com' likhne se match nahi hota - leading DOT hona chahiye.)
+    # Django's wildcard syntax: '.example.com' -> example.com AND all subdomains.
+    # (Writing '*.example.com' does not match - there must be a leading DOT.)
     ALLOWED_HOSTS.append(f'.{_SAAS_ROOT}')
     if _SAAS_ROOT not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(_SAAS_ROOT)
 
 # ---------------- CSRF TRUSTED ORIGINS ----------------
-# Django 4+ har POST pe browser ka `Origin` header check karta hai. HTTPS domain
-# yahan listed na ho to "Origin checking failed ... does not match any trusted
-# origins" (403) milta hai - login form tak submit nahi hota.
+# Django 4+ checks the browser's `Origin` header on every POST. If the HTTPS
+# domain is not listed here, you get "Origin checking failed ... does not match
+# any trusted origins" (403) - even the login form cannot be submitted.
 #
-# Teen sources se banta hai:
-#   1. CSRF_TRUSTED_ORIGINS env var (comma separated, scheme ke saath)
-#   2. SAAS_ROOT_DOMAIN + uske saare subdomains (wildcard)
-#   3. ALLOWED_HOSTS ke explicit entries + platform ka auto-detected hostname
+# It is built from three sources:
+#   1. CSRF_TRUSTED_ORIGINS env var (comma separated, with scheme)
+#   2. SAAS_ROOT_DOMAIN + all its subdomains (wildcard)
+#   3. explicit ALLOWED_HOSTS entries + the platform's auto-detected hostname
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='', cast=Csv())
 
 
@@ -49,13 +49,13 @@ def _add_trusted_origin(origin):
         CSRF_TRUSTED_ORIGINS.append(origin)
 
 
-# 2. tenant subdomains: acme.example.com pe bhi form submit hona chahiye
+# 2. tenant subdomains: forms must also submit on acme.example.com
 if _SAAS_ROOT:
     for _scheme in ('https', 'http'):
         _add_trusted_origin(f'{_scheme}://{_SAAS_ROOT}')
         _add_trusted_origin(f'{_scheme}://*.{_SAAS_ROOT}')
 
-# 3. explicit hosts ('*' skip - uska matlab "koi bhi", trusted origin nahi bana sakte)
+# 3. explicit hosts ('*' is skipped - it means "any", which cannot be a trusted origin)
 for _host in ALLOWED_HOSTS:
     _host = _host.strip().lstrip('.').lower()
     if not _host or _host == '*':
@@ -92,7 +92,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
 
     # Local apps
-    'tenants',        # Phase 1: multi-tenancy (Hospital model) - sabse pehle load ho
+    'tenants',        # Phase 1: multi-tenancy (Hospital model) - must load first
     'subscriptions',  # Phase 2: plans + Razorpay recurring billing
     'ml_engine',      # Phase 3: no-show prediction
     'api',            # Phase 4: DRF + JWT + Swagger
@@ -114,7 +114,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'tenants.middleware.TenantMiddleware',  # Phase 1: subdomain -> Hospital resolve (auth ke baad, axes se pehle)
+    'tenants.middleware.TenantMiddleware',  # Phase 1: subdomain -> Hospital resolution (after auth, before axes)
     'axes.middleware.AxesMiddleware',  # must come after AuthenticationMiddleware
     'core.middleware.AuditContextMiddleware',  # makes current user/IP available to signal handlers
     'core.middleware.IdleSessionTimeoutMiddleware',  # auto-logout after inactivity
@@ -135,7 +135,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-                # Phase 2: har template ko current plan / feature flags milte hain
+                # Phase 2: every template receives the current plan / feature flags
                 'subscriptions.context_processors.subscription',
             ],
         },
@@ -148,17 +148,17 @@ WSGI_APPLICATION = 'hospital_system.wsgi.application'
 # Local dev (no .env DATABASE_URL set) -> SQLite, fast to start.
 # Production -> set DATABASE_URL=postgres://user:pass@host:port/dbname
 #
-# NOTE: `.env` mein `DATABASE_URL=` (khaali) likha ho to python-decouple
-# default NAHI deta - empty string wapas deta hai, aur dj_database_url usse
-# `UnknownSchemeError: Scheme '://'` pe phat jaata tha. Isliye blank/whitespace
-# ko bhi "SQLite use karo" maana jaata hai, taaki fresh checkout `cp
-# .env.example .env` ke baad seedha chal jaaye.
+# NOTE: if `.env` has `DATABASE_URL=` (blank), python-decouple does NOT
+# return the default - it returns an empty string, and dj_database_url used to
+# crash with `UnknownSchemeError: Scheme '://'`. That is why blank/whitespace
+# is also treated as "use SQLite", so a fresh checkout runs right after
+# `cp .env.example .env`.
 _DEFAULT_DB_URL = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
 _DB_URL = config('DATABASE_URL', default='').strip() or _DEFAULT_DB_URL
 if '://' not in _DB_URL:
     raise ImproperlyConfigured(
-        f"DATABASE_URL galat hai: {_DB_URL!r}. Expected format: "
-        "postgres://user:password@host:5432/dbname (ya blank chhod do SQLite ke liye)."
+        f"Invalid DATABASE_URL: {_DB_URL!r}. Expected format: "
+        "postgres://user:password@host:5432/dbname (or leave it blank for SQLite)."
     )
 DATABASES = {
     'default': dj_database_url.parse(
@@ -184,70 +184,70 @@ LOGOUT_REDIRECT_URL = 'accounts:login'
 
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',  # checks lockout BEFORE password check
-    'tenants.backends.TenantModelBackend',  # Phase 1: sirf current tenant ke andar authenticate
-    # NOTE: plain ModelBackend YAHAN MAT DALNA - woh username se global lookup karta
-    # hai aur doosre hospital ka user authenticate kar deta. Yeh wrapper tenant
-    # active hone pe khud ko disable kar deta hai.
-    'tenants.backends.TenantAwareModelBackend',  # sirf tab jab koi tenant active na ho
+    'tenants.backends.TenantModelBackend',  # Phase 1: authenticates only within the current tenant
+    # NOTE: do NOT add plain ModelBackend HERE - it does a global lookup by
+    # username and would authenticate a user from another hospital. This wrapper
+    # disables itself when a tenant is active.
+    'tenants.backends.TenantAwareModelBackend',  # only when no tenant is active
 ]
 
 # ---------------- MULTI-TENANCY (Phase 1) ----------------
-# 'subdomain' -> acme.SAAS_ROOT_DOMAIN ; tenant resolve host ke pehle label se hota hai
+# 'subdomain' -> acme.SAAS_ROOT_DOMAIN ; the tenant is resolved from the first label of the host
 TENANCY_MODE = config('TENANCY_MODE', default='subdomain')
-# DNS mein *.SAAS_ROOT_DOMAIN wildcard record zaroori hai (production mein)
+# A *.SAAS_ROOT_DOMAIN wildcard DNS record is required (in production)
 SAAS_ROOT_DOMAIN = config('SAAS_ROOT_DOMAIN', default='localhost').strip().lower()
-# Session-based fallback ke liye key (subdomain na mile ya direct IP se aayein)
+# Key for the session-based fallback (when the subdomain is missing or the client uses a direct IP)
 TENANCY_SESSION_KEY = config('TENANCY_SESSION_KEY', default='hospital_slug')
-# Root domain pe bina tenant ke request aaye to login page pe bhejo (data leak nahi)
+# Send tenant-less requests on the root domain to the login page (no data leak)
 TENANT_REQUIRED = config('TENANT_REQUIRED', default=True, cast=bool)
-# In paths pe tenant zaroori nahi
+# Tenant is not required on these paths
 TENANT_EXEMPT_PATHS = tuple(
     filter(None, config('TENANT_EXEMPT_PATHS', default='/accounts/login/,/admin/login/,/healthz,/saas/webhook/', cast=Csv()))
 )
-# Phase 1 data migration isi hospital ko bana ke purana saara data isse assign karti hai
+# The Phase 1 data migration creates this hospital and assigns all pre-existing data to it
 DEFAULT_HOSPITAL_NAME = config('DEFAULT_HOSPITAL_NAME', default='Default Hospital')
 DEFAULT_HOSPITAL_SLUG = config('DEFAULT_HOSPITAL_SLUG', default='default')
 
 # ---------------- RAZORPAY (Phase 2 - recurring subscriptions) ----------------
-# Test-mode keys: Dashboard > Settings > API Keys. LIVE keys sirf production env mein.
+# Test-mode keys: Dashboard > Settings > API Keys. LIVE keys only in the production env.
 RAZORPAY_KEY_ID = config('RAZORPAY_KEY_ID', default='')
 RAZORPAY_KEY_SECRET = config('RAZORPAY_KEY_SECRET', default='')
-# Webhook secret: Dashboard > Webhooks > Add > "Secret" (signature verify ke liye)
+# Webhook secret: Dashboard > Webhooks > Add > "Secret" (for signature verification)
 RAZORPAY_WEBHOOK_SECRET = config('RAZORPAY_WEBHOOK_SECRET', default='')
 RAZORPAY_CURRENCY = config('RAZORPAY_CURRENCY', default='INR')
 
-# Payment fail hone ke baad kitne din tak access chalu rahe (hospital ka kaam
-# ek failed payment se band kar dena safe nahi).
+# How many days access continues after a failed payment (stopping a hospital's
+# work over a single failed payment is not safe).
 SUBSCRIPTION_GRACE_DAYS = config('SUBSCRIPTION_GRACE_DAYS', default=3, cast=int)
 
 # ---------------- CELERY / REDIS (Phase 3) ----------------
-# Local dev: CELERY_TASK_ALWAYS_EAGER=True -> broker ke bina tasks sync chalte hain.
-# Production: REDIS_URL set karo aur worker chalao (celery -A hospital_system worker).
+# Local dev: CELERY_TASK_ALWAYS_EAGER=True -> tasks run synchronously without a broker.
+# Production: set REDIS_URL and run a worker (celery -A hospital_system worker).
 REDIS_URL = config('REDIS_URL', default='')
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default=REDIS_URL) or 'memory://'
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default=REDIS_URL) or 'cache+memory://'
 CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)
-CELERY_TASK_EAGER_PROPAGATES = True   # eager mode mein exception chhupao mat (tests ke liye zaroori)
+CELERY_TASK_EAGER_PROPAGATES = True   # do not swallow exceptions in eager mode (required for tests)
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TIMEZONE = 'Asia/Kolkata'   # TIME_ZONE isi file mein niche define hota hai
+CELERY_TIMEZONE = 'Asia/Kolkata'   # TIME_ZONE is defined below in this file
 CELERY_TASK_TRACK_STARTED = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # ---------------- ML / NO-SHOW PREDICTION (Phase 3) ----------------
-# Isse kam labelled appointments -> rule-based engine (cold start fallback)
+# Fewer labelled appointments than this -> rule-based engine (cold start fallback)
 ML_MIN_TRAINING_ROWS = config('ML_MIN_TRAINING_ROWS', default=250, cast=int)
-# Trained joblib files kahan rahengi (git-ignored). NOTE: Render ka filesystem
-# ephemeral hai - deploy ke baad retrain karo ya object storage use karo.
+# Where the trained joblib files live (git-ignored). NOTE: Render's filesystem
+# is ephemeral - retrain after deploy or use object storage.
 ML_MODEL_DIR = config('ML_MODEL_DIR', default=str(BASE_DIR / 'ml_models'))
 ML_HIGH_RISK_THRESHOLD = config('ML_HIGH_RISK_THRESHOLD', default=0.65, cast=float)
 ML_MEDIUM_RISK_THRESHOLD = config('ML_MEDIUM_RISK_THRESHOLD', default=0.40, cast=float)
-# Appointment create hote hi risk score compute karein (False = sirf manual command se)
+# Compute the risk score as soon as an appointment is created (False = only via the manual command)
 ML_AUTO_SCORE_ON_CREATE = config('ML_AUTO_SCORE_ON_CREATE', default=True, cast=bool)
 
 # ---------------- REST API (Phase 4) ----------------
-# JWT auth. Session auth bhi on hai taaki Swagger UI se bina token ke try kar sako.
+# JWT auth. Session auth is also on so you can try the API from the Swagger UI without a token.
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -273,11 +273,11 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': dt.timedelta(
         days=config('SIMPLE_JWT_REFRESH_TOKEN_DAYS', default=7, cast=int)),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': False,   # token_blacklist app install nahi hai
+    'BLACKLIST_AFTER_ROTATION': False,   # the token_blacklist app is not installed
     'UPDATE_LAST_LOGIN': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
-    # Token claims (hospital slug + role) custom serializer se aate hain -
-    # convenience ke liye; authorization hamesha SERVER pe check hoti hai.
+    # Token claims (hospital slug + role) come from a custom serializer -
+    # for convenience only; authorization is always checked on the SERVER.
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
 }
@@ -286,10 +286,10 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Hospital Management SaaS API',
     'DESCRIPTION': (
         'Multi-tenant hospital management API.\n\n'
-        '**Tenant:** request `<hospital>.<root-domain>` pe bhejo '
-        '(jaise `acme.example.com/api/patients/`), ya `X-Hospital-Slug: acme` header.\n\n'
-        '**Auth:** `POST /api/token/` se JWT lo, phir `Authorization: Bearer <token>`.\n\n'
-        'Data endpoints ke liye plan mein `api_access` feature zaroori hai (Scale plan).'
+        '**Tenant:** send the request to `<hospital>.<root-domain>` '
+        '(like `acme.example.com/api/patients/`), or use the `X-Hospital-Slug: acme` header.\n\n'
+        '**Auth:** get a JWT from `POST /api/token/`, then send `Authorization: Bearer <token>`.\n\n'
+        'Data endpoints require the `api_access` feature in the plan (Scale plan).'
     ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
@@ -300,7 +300,7 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ---------------- SENTRY (Phase 5) ----------------
-# DSN khali ho to init hi nahi hota - local dev bilkul unaffected.
+# If the DSN is empty, init does not happen at all - local dev is completely unaffected.
 SENTRY_DSN = config('SENTRY_DSN', default='')
 SENTRY_ENVIRONMENT = config('SENTRY_ENVIRONMENT', default='local')
 SENTRY_TRACES_SAMPLE_RATE = config('SENTRY_TRACES_SAMPLE_RATE', default=0.1, cast=float)
@@ -315,7 +315,7 @@ if SENTRY_DSN:
         environment=SENTRY_ENVIRONMENT,
         traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
         integrations=[DjangoIntegration(), CeleryIntegration()],
-        # Hospital data hai - user ka PII (email/IP) Sentry mein mat bhejo
+        # This is hospital data - do not send user PII (email/IP) to Sentry
         send_default_pii=False,
         release=config('SENTRY_RELEASE', default='') or None,
     )
@@ -327,12 +327,13 @@ AXES_LOCKOUT_PARAMETERS = ['username']   # lock per-username, not per-IP (staff 
 AXES_RESET_ON_SUCCESS = True      # successful login clears the failure counter
 
 # ---------------- COOKIE SAMESITE ----------------
-# Default 'Lax' sabse safe hai. Par jab app kisi DOOSRI site ke iframe mein khulti
-# hai (preview panes, embedded dashboards), browser Lax cookies cross-site request
-# mein bhejta hi nahi -> form POST pe "CSRF cookie not set" (403).
+# The default 'Lax' is the safest. But when the app opens inside ANOTHER site's
+# iframe (preview panes, embedded dashboards), the browser never sends Lax
+# cookies with cross-site requests -> form POSTs fail with "CSRF cookie not set"
+# (403).
 #
-# Aise case mein COOKIE_SAMESITE=None karo. Django ko 'None' ke saath Secure
-# zaroori hai, isliye woh bhi khud on ho jaata hai (matlab HTTPS chahiye).
+# In such cases set COOKIE_SAMESITE=None. Django requires Secure with 'None',
+# so that is turned on automatically too (meaning HTTPS is required).
 COOKIE_SAMESITE = config('COOKIE_SAMESITE', default='Lax')
 SESSION_COOKIE_SAMESITE = COOKIE_SAMESITE
 CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
