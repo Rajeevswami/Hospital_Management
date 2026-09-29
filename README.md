@@ -65,15 +65,24 @@ Django 6 + PostgreSQL + Redis + Celery + scikit-learn. With a REST API
 
 ## Product screenshots
 
-> Illustrative screenshots of the product UI.
+> Screenshots of the real product UI, rendered with representative sample data
+> (Indian names, `PAT-2026-XXXX` patient IDs, ₹ amounts). Layouts and styling
+> match the Django/Bootstrap templates in `templates/`.
 
-**Dashboard overview** — today's appointments, occupancy, revenue and billing at
-a glance:
+**Dashboard overview** — admin home with KPI stat cards, 7-day revenue line
+chart, bed-occupancy doughnut, today's appointments table, and a High Risk
+Appointments (AI No-Show) panel:
 
 ![Dashboard overview](docs/images/dashboard-overview.png)
 
-**AI no-show risk** — every appointment scored 0–1 with human-readable reasons,
-so reception can confirm high-risk bookings in advance:
+**Patients list** — searchable patient directory with `PAT-2026-XXXX` IDs,
+demographics and blood group:
+
+![Patients list](docs/images/patients-list.png)
+
+**AI no-show risk** — every upcoming appointment scored 0–1 by the
+`ml_engine` (rules → GradientBoosting), with HIGH/MEDIUM/LOW risk badges and
+human-readable reasons for reception to act on:
 
 ![AI no-show risk dashboard](docs/images/dashboard-ai-risk.png)
 
